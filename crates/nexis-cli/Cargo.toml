@@ -1,0 +1,10 @@
+[package]
+name = "nexis-cli"
+version.workspace = true
+edition.workspace = true
+description = "Nexis command line client"
+license.workspace = true
+
+[dependencies]
+nexis-core = { path = "../nexis-core" }
+clap.workspace = true

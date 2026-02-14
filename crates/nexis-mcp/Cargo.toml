@@ -1,0 +1,25 @@
+[package]
+name = "nexis-mcp"
+description = "Nexis MCP (Model Context Protocol) integration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+
+nexis-protocol = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = { workspace = true }

@@ -1,0 +1,71 @@
+# Security-focused Git hooks for Nexis
+#
+# 分类标注：
+# - [Baseline] 必须启用：基础 secret + 依赖安全 + 格式检查
+# - [Enterprise] 建议附加：提交签名校验、策略即代码校验
+#
+# 实施步骤：
+# 1) pipx install pre-commit && pre-commit install
+# 2) pre-commit run --all-files
+# 3) 在 CI 中执行 pre-commit 作为强制门禁
+#
+# 检查清单：
+# [ ] gitleaks 无泄露
+# [ ] detect-secrets baseline 更新且通过
+# [ ] cargo-audit 无未豁免高危漏洞
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+        args: ["protect", "--staged", "--redact", "--verbose"]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args:
+          - --baseline
+          - .secrets.baseline
+        exclude: |
+          (?x)^(
+            docs/.*|
+            .*\.md
+          )$
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt-check
+        name: cargo fmt check
+        entry: bash -c 'cargo fmt --all -- --check'
+        language: system
+        pass_filenames: false
+      - id: cargo-clippy-strict
+        name: cargo clippy strict
+        entry: bash -c 'cargo clippy --workspace --all-targets -- -D warnings'
+        language: system
+        pass_filenames: false
+      - id: cargo-audit
+        name: cargo audit
+        entry: bash -c 'command -v cargo-audit >/dev/null 2>&1 && cargo audit || echo "cargo-audit not installed, skip local"'
+        language: system
+        pass_filenames: false
+
+# [Enterprise] 可选增强（按需取消注释）
+# - repo: local
+#   hooks:
+#     - id: verify-commit-signature
+#       name: verify commit signature
+#       entry: bash -c 'git verify-commit HEAD'
+#       language: system
+#       pass_filenames: false

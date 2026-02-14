@@ -81,8 +81,8 @@ Nexis 不是另一个 Slack 或 Feishu。它是从零开始构建的 **AI-Native
 
 - Rust 1.75+
 - Node.js 20+
-- PostgreSQL 15+
-- Qdrant (向量数据库)
+- PostgreSQL 15+ (planned)
+- Qdrant (planned)
 
 ### Installation
 
@@ -91,20 +91,29 @@ Nexis 不是另一个 Slack 或 Feishu。它是从零开始构建的 **AI-Native
 git clone https://github.com/schorsch888/Nexis.git
 cd Nexis
 
-# Build core library
-cd packages/nexis-core
-cargo build --release
+# Build workspace
+cargo build --workspace
 
 # Run CLI
-cd ../nexis-cli
-cargo run -- create-room "general"
+cargo run -p nexis-cli -- create-room "general"
+
+# Run gateway
+cargo run -p nexis-gateway
+
+# Run web shell
+cd apps/web && npm install && npm run dev
 ```
 
-### Docker
+### Runtime Status (M3)
 
-```bash
-docker-compose up -d
-```
+| Module | Status | Notes |
+|--------|--------|-------|
+| `packages/nexis-core` | minimal | NIP-001/002 primitives + validation |
+| `packages/nexis-cli` | minimal | `create-room`, `send`, `member parse` |
+| `servers/nexis-gateway` | minimal | `/health`, message endpoint, auth/mcp stubs |
+| `apps/web` | shell | React + TypeScript + Vite bootstrap |
+| MCP providers | stub | interface ready, provider adapters pending |
+| Semantic engine | planned | vector/KG/intelligence capabilities pending |
 
 ---
 
@@ -112,37 +121,40 @@ docker-compose up -d
 
 ```
 nexis/
-├── protocol/              # 协议规范
-│   ├── nexis-id.md       # NIP-001: 身份协议
-│   ├── nexis-msg.md      # NIP-002: 消息协议
-│   └── nexis-mcp.md      # NIP-003: AI 接入协议
-│
+├── Cargo.toml             # Workspace 配置（members + 共享依赖）
 ├── packages/
 │   ├── nexis-core/       # Rust 核心库
 │   │   ├── src/
-│   │   │   ├── identity/ # 身份管理
-│   │   │   ├── message/  # 消息处理
-│   │   │   ├── permission/ # 权限系统
-│   │   │   └── context/  # 上下文引擎
+│   │   │   ├── lib.rs
+│   │   │   ├── identity/mod.rs
+│   │   │   ├── message/mod.rs
+│   │   │   ├── permission/mod.rs
+│   │   │   └── context/mod.rs
 │   │   └── Cargo.toml
 │   │
 │   └── nexis-cli/        # 命令行客户端
+│       ├── src/lib.rs
+│       └── Cargo.toml
 │
 ├── servers/
 │   └── nexis-gateway/    # WebSocket 网关
 │       ├── src/
-│       │   ├── router/   # 消息路由
-│       │   ├── auth/     # 认证授权
-│       │   └── mcp/      # MCP 集成
+│       │   ├── lib.rs
+│       │   ├── router/mod.rs
+│       │   ├── auth/mod.rs
+│       │   └── mcp/mod.rs
 │       └── Cargo.toml
 │
 ├── apps/
 │   └── web/              # Web 前端 (React + TypeScript)
 │
+├── protocol/             # 协议规范
+│   ├── nexis-id.md       # NIP-001: 身份协议
+│   ├── nexis-msg.md      # NIP-002: 消息协议
+│   └── nexis-mcp.md      # NIP-003: AI 接入协议
+│
 └── docs/                 # 文档
-    ├── architecture/     # 架构设计
-    ├── api/              # API 文档
-    └── guides/           # 使用指南
+    └── plans/            # 设计与执行计划
 ```
 
 ---
@@ -159,10 +171,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 cargo install cargo-watch cargo-audit
 
 # Run tests
-cargo test --all
+cargo test --workspace
 
 # Run with hot reload
-cargo watch -x run
+cargo watch -x 'run -p nexis-gateway'
 ```
 
 ### Code Style
@@ -171,10 +183,10 @@ We follow strict code quality standards:
 
 ```bash
 # Format code
-cargo fmt
+cargo fmt --all
 
 # Lint
-cargo clippy -- -D warnings
+cargo clippy --workspace -- -D warnings
 
 # Security audit
 cargo audit

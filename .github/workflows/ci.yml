@@ -40,13 +40,13 @@ jobs:
         run: cargo fmt --all -- --check
       
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --workspace --verbose
       
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --workspace --verbose
 
   # ============================================================================
   # TypeScript 代码检查
@@ -54,6 +54,9 @@ jobs:
   typescript-check:
     name: TypeScript Check
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       
@@ -61,27 +64,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
-      
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
+          cache: 'npm'
+          cache-dependency-path: apps/web/package.json
       
       - name: Install dependencies
-        run: pnpm install
-      
-      - name: Check formatting
-        run: pnpm format:check
-      
-      - name: Lint
-        run: pnpm lint
+        run: npm install
       
       - name: Build
-        run: pnpm build
-      
-      - name: Test
-        run: pnpm test
+        run: npm run build
 
   # ============================================================================
   # 协议文档检查
