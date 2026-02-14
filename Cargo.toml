@@ -37,16 +37,15 @@ futures = "0.3"
 
 # Web Framework
 axum = "0.7"
-axum-extra = "0.9"
+axum-extra = { version = "0.9", features = ["typed-header", "query"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "auth"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
 hyper = { version = "1.1", features = ["full"] }
 
 # WebSocket
 tokio-tungstenite = "0.21"
-axum-extra = { version = "0.9", features = ["typed-header", "query"] }
 
-# Database
+# Database (future use)
 sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
 qdrant-client = "1.7"
 
@@ -57,7 +56,6 @@ clap_complete = "4.5"
 # Logging & Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.22"
 
 # Error Handling
 thiserror = "1.0"
@@ -86,25 +84,30 @@ nexis-core = { path = "crates/nexis-core" }
 nexis-protocol = { path = "crates/nexis-protocol" }
 nexis-mcp = { path = "crates/nexis-mcp" }
 
+# Release profile - optimized for production
 [profile.release]
 lto = "thin"
 strip = true
 codegen-units = 1
 opt-level = 3
 
+# Development profile - fast iteration
 [profile.dev]
 opt-level = 0
 debug = true
 incremental = true
 
+# Test profile
 [profile.test]
 opt-level = 2
 debug = true
 
+# Lint configuration - strict quality standards
 [workspace.lints.rust]
-unsafe_code = "warn"
+unsafe_code = "forbid"
 missing_docs = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
+unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -112,8 +115,10 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 
-# Allow some pedantic lints
+# Allow some overly pedantic lints
 module_name_repetitions = "allow"
 too_many_lines = "allow"
 many_single_char_names = "allow"
 similar_names = "allow"
+struct_excessive_bools = "allow"
+cargo_common_metadata = "allow"
