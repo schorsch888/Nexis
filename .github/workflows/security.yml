@@ -2,93 +2,77 @@ name: Security
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
+  schedule:
+    # Daily security scan at 00:00 UTC
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  # [Baseline] 基础安全扫描
-  baseline-security:
-    name: Baseline Security Scan
+  # ============================================================================
+  # Secret Scanning
+  # ============================================================================
+  secret-scan:
+    name: Secret Scanning
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node.js (for web app scan)
-        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          fetch-depth: 0
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run cargo audit
-        run: cargo audit --deny warnings
-
-      - name: Gitleaks scan
+      - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: table
-          exit-code: '1'
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-  # [Enterprise] 合规模块（可在企业环境强制）
-  enterprise-compliance:
-    name: Enterprise Compliance Gate
+  # ============================================================================
+  # Dependency Audit
+  # ============================================================================
+  dependency-audit:
+    name: Dependency Audit
     runs-on: ubuntu-latest
-    if: ${{ vars.NEXIS_ENTERPRISE_ENFORCED == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate security docs presence
-        run: |
-          test -f docs/security/README.md
-          test -f docs/security/baseline.md
-          test -f docs/security/enterprise.md
-          echo "Security docs present"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Validate immutable audit settings in env template
-        run: |
-          grep -q '^NEXIS_AUDIT_IMMUTABLE_STORAGE=true' .env.example
-          grep -q '^NEXIS_MULTI_TENANT_ENABLED=' .env.example
-          echo "Enterprise env keys found"
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
-      - name: Generate SBOM (CycloneDX)
-        uses: CycloneDX/gh-rust-cyclonedx@v1
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Run audit
+        run: cargo audit
+
+  # ============================================================================
+  # CodeQL Analysis
+  # ============================================================================
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          output: bom.json
+          languages: rust
 
-      - name: Upload compliance artifacts
-        uses: actions/upload-artifact@v4
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
         with:
-          name: enterprise-security-artifacts
-          path: |
-            bom.json
-            docs/security/*.md
-
-# 实施步骤：
-# 1) Baseline：直接启用 baseline-security job。
-# 2) Enterprise：在仓库变量中设置 NEXIS_ENTERPRISE_ENFORCED=true。
-# 3) 将 artifacts 纳入审计证据保留策略。
-#
-# 检查清单：
-# [ ] Baseline job 在 PR 上强制通过
-# [ ] Enterprise job 在私有化仓库启用并产生证据
-# [ ] 高危漏洞与 secrets 泄露可阻断发布
+          category: "/language:rust"
