@@ -140,12 +140,7 @@ impl HttpJsonProvider {
             match self.try_post_json(path, payload).await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
-                    let retriable = matches!(
-                        err,
-                        ProviderError::Transport(_)
-                            | ProviderError::RetryExhausted { .. }
-                            | ProviderError::HttpStatus { status, .. } if status >= 500
-                    );
+                    let retriable = is_retriable(&err);
                     last_error = Some(err.to_string());
                     if retriable && attempt < self.max_retries {
                         sleep(backoff(self.retry_base_delay, attempt)).await;
@@ -243,6 +238,8 @@ impl ToolProvider for HttpJsonProvider {
 pub struct ControlPlaneClient {
     http: HttpJsonProvider,
     queue: Mutex<VecDeque<QueuedTask>>,
+    max_task_attempts: u32,
+    retry_delay: Duration,
 }
 
 impl ControlPlaneClient {
@@ -250,7 +247,15 @@ impl ControlPlaneClient {
         Self {
             http,
             queue: Mutex::new(VecDeque::new()),
+            max_task_attempts: 3,
+            retry_delay: Duration::from_millis(100),
         }
+    }
+
+    pub fn with_retry_policy(mut self, max_task_attempts: u32, retry_delay: Duration) -> Self {
+        self.max_task_attempts = max_task_attempts.max(1);
+        self.retry_delay = retry_delay;
+        self
     }
 
     pub fn enqueue_generate(&self, task_id: impl Into<String>, req: GenerateRequest) {
@@ -274,15 +279,27 @@ impl ControlPlaneClient {
     }
 
     pub async fn drain_once(&self) -> Result<Option<serde_json::Value>, ProviderError> {
-        let task = self
-            .queue
-            .lock()
-            .expect("task queue poisoned")
-            .pop_front();
+        let task = self.queue.lock().expect("task queue poisoned").pop_front();
 
         match task {
             None => Ok(None),
-            Some(task) => self.dispatch_task(task).await.map(Some),
+            Some(mut task) => match self.dispatch_task(task.clone()).await {
+                Ok(result) => Ok(Some(result)),
+                Err(err) if is_retriable(&err) => {
+                    task.attempts += 1;
+                    if task.attempts < self.max_task_attempts {
+                        self.push_task(task);
+                        sleep(self.retry_delay).await;
+                        Ok(None)
+                    } else {
+                        Err(ProviderError::RetryExhausted {
+                            attempts: task.attempts,
+                            last_error: err.to_string(),
+                        })
+                    }
+                }
+                Err(err) => Err(err),
+            },
         }
     }
 
@@ -366,6 +383,14 @@ impl AIProvider for MockProvider {
 
 fn backoff(base: Duration, attempt: u32) -> Duration {
     base.saturating_mul(1_u32 << attempt)
+}
+
+fn is_retriable(err: &ProviderError) -> bool {
+    match err {
+        ProviderError::Transport(_) | ProviderError::RetryExhausted { .. } => true,
+        ProviderError::HttpStatus { status, .. } => *status >= 500,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -527,6 +552,80 @@ mod tests {
 
         dispatched.assert_async().await;
         assert_eq!(result["status"], "ok");
+        assert_eq!(queue.queued_tasks(), 0);
+    }
+
+    #[tokio::test]
+    async fn task_queue_requeues_retriable_failures() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/tasks/generate");
+                then.status(500).body("control plane unavailable");
+            })
+            .await;
+
+        let queue = ControlPlaneClient::new(
+            HttpJsonProvider::new(server.base_url(), "test-key")
+                .with_retry_policy(0, Duration::from_millis(1)),
+        )
+        .with_retry_policy(2, Duration::from_millis(1));
+        queue.enqueue_generate("task_1", request());
+
+        let first = queue.drain_once().await.unwrap();
+        assert!(first.is_none());
+        assert_eq!(queue.queued_tasks(), 1);
+    }
+
+    #[tokio::test]
+    async fn task_queue_returns_retry_exhausted_after_limit() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/tasks/generate");
+                then.status(500).body("control plane unavailable");
+            })
+            .await;
+
+        let queue = ControlPlaneClient::new(
+            HttpJsonProvider::new(server.base_url(), "test-key")
+                .with_retry_policy(0, Duration::from_millis(1)),
+        )
+        .with_retry_policy(2, Duration::from_millis(1));
+        queue.enqueue_generate("task_1", request());
+
+        queue.drain_once().await.unwrap();
+        let err = queue.drain_once().await.unwrap_err();
+
+        match err {
+            ProviderError::RetryExhausted { attempts, .. } => assert_eq!(attempts, 2),
+            other => panic!("unexpected error: {other:?}"),
+        }
+        assert_eq!(queue.queued_tasks(), 0);
+    }
+
+    #[tokio::test]
+    async fn task_queue_does_not_requeue_client_errors() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/tasks/generate");
+                then.status(400).body("bad task payload");
+            })
+            .await;
+
+        let queue = ControlPlaneClient::new(
+            HttpJsonProvider::new(server.base_url(), "test-key")
+                .with_retry_policy(0, Duration::from_millis(1)),
+        )
+        .with_retry_policy(3, Duration::from_millis(1));
+        queue.enqueue_generate("task_1", request());
+
+        let err = queue.drain_once().await.unwrap_err();
+        match err {
+            ProviderError::HttpStatus { status, .. } => assert_eq!(status, 400),
+            other => panic!("unexpected error: {other:?}"),
+        }
         assert_eq!(queue.queued_tasks(), 0);
     }
 }

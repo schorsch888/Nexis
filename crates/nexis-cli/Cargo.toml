@@ -8,3 +8,13 @@ license.workspace = true
 [dependencies]
 nexis-core = { path = "../nexis-core" }
 clap.workspace = true
+futures = { workspace = true }
+reqwest = { version = "0.11", features = ["json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+[dev-dependencies]
+httpmock = "0.7"
