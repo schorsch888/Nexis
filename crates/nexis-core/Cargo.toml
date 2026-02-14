@@ -20,6 +20,9 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 
+# Internal
+nexis-protocol = { workspace = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
 tokio-test = "0.4"
