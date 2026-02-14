@@ -1,24 +1,24 @@
-# Nexis 架构设计（Hybrid: Monolith First, Split-Ready）
+# Nexis 架构设计（Split Deployment: Control Plane + Agent Runtime）
 
 **日期：** 2026-02-14  
-**决策基线：** 方案 C（混合部署：先单体，接口按拆分预留）  
+**决策基线：** 方案 B（Control Plane + Agent Runtime 拆分部署）  
 **核心目标：** AI 协作执行 + 完整通讯能力（人-人、人-AI、AI-AI）
 
 ---
 
 ## 0. 设计原则与边界
 
-1. **执行优先**：先实现可运行闭环，避免过早分布式复杂度。
+1. **执行优先**：优先保证任务执行闭环与交互体验，拆分不牺牲交付速度。
 2. **AI 一等公民**：AI 与人类统一身份、统一消息协议、统一权限框架。
 3. **AI 负责人级权限**：AI 默认具备负责人级操作能力，但受策略引擎和审计约束。
-4. **单体内模块化**：通过明确领域边界与内部接口，为后续拆分微服务做准备。
-5. **协议先行**：统一交互模型 + 统一 AI 网关协议 + 语义中枢抽象。
+4. **控制面与执行面分离**：Control Plane 负责治理与编排，Agent Runtime 负责 AI 执行与工具调用。
+5. **协议先行**：统一交互模型 + 统一 AI 网关协议 + 控制面/执行面契约。
 
 ---
 
 ## 1. 系统架构图
 
-### 1.1 逻辑架构（MVP 单体）
+### 1.1 逻辑架构（双组件）
 
 ```mermaid
 flowchart LR
@@ -27,30 +27,41 @@ flowchart LR
       A[AI Agent Client\nMCP-compatible]
     end
 
-    H -->|WS/HTTP| G
-    A -->|MCP/HTTP| G
+    H -->|WS/HTTP| CP
+    A -->|MCP/HTTP| CP
 
-    subgraph Monolith[Nexis Monolith]
-      G[Unified Gateway\nAuth + Routing + Protocol]
+    subgraph CPN[Control Plane]
+      CP[Unified Gateway\nAuth + Routing + Session]
       IM[Interaction Engine\nConversation/Thread/State]
       PE[Policy Engine\nRBAC+ABAC+Guardrails]
-      OR[Orchestrator\nAI Collaboration Modes]
-      KB[Semantic Backbone\nVector + Graph + Memory]
       MSG[Messaging Core\nRoom/Presence/Delivery]
-      OBS[Observability & Audit]
+      AUD[Observability & Audit]
+      SCHED[Task Scheduler & Dispatch]
     end
 
-    G --> IM
-    G --> MSG
-    IM --> OR
-    OR --> PE
-    OR --> KB
-    MSG --> KB
-    PE --> OBS
-    OR --> OBS
-    MSG --> OBS
+    subgraph ARN[Agent Runtime]
+      OR[AI Orchestrator\nCollaboration Modes]
+      AGW[AI Gateway\nProvider Adapters]
+      TOOL[Tool Runner\nSandbox/Connector]
+      KB[Semantic Backbone\nVector + Graph + Memory]
+    end
 
-    OR -->|Adapter Protocol| EXT
+    CP --> IM
+    CP --> MSG
+    IM --> SCHED
+    SCHED -->|Dispatch API| OR
+    OR --> AGW
+    OR --> TOOL
+    OR --> KB
+    OR -->|Status/Events| SCHED
+    PE --> SCHED
+    MSG --> KB
+
+    SCHED --> AUD
+    OR --> AUD
+    TOOL --> AUD
+
+    AGW -->|Adapter Protocol| EXT
 
     subgraph EXT[External AI Providers]
       OAI[OpenAI]
@@ -60,33 +71,78 @@ flowchart LR
     end
 ```
 
-### 1.2 部署架构（先单体，预留拆分）
+### 1.2 部署架构（独立部署 + API 通信）
 
 ```mermaid
 flowchart TB
-    subgraph Runtime[Single Deployable Unit]
-      API[API + WS + MCP Gateway]
-      APP[Domain Modules\nInteraction/Orchestrator/Policy]
-      STORE[(PostgreSQL)]
-      VEC[(Vector DB)]
-      CACHE[(Redis)]
+    subgraph Edge[Ingress]
+      GW[API Gateway / LB]
     end
 
-    API --> APP
-    APP --> STORE
-    APP --> VEC
-    APP --> CACHE
+    subgraph CPCluster[Control Plane Cluster]
+      CPAPI[Control Plane API\nAuth/Routing/Policy]
+      CPMSG[Messaging + Interaction]
+      CPSCH[Scheduler + Dispatch]
+      CPAUD[Audit/Observability]
+      CPDB[(PostgreSQL-CP)]
+      CPCA[(Redis-CP)]
+    end
 
-    APP -. split-ready interfaces .-> FUT1[Future: Messaging Service]
-    APP -. split-ready interfaces .-> FUT2[Future: AI Gateway Service]
-    APP -. split-ready interfaces .-> FUT3[Future: Semantic Service]
+    subgraph ARCluster[Agent Runtime Cluster]
+      ARAPI[Runtime API\nTask/Tool/Callback]
+      ARO[Orchestrator Workers]
+      ARGW[AI Gateway + Adapters]
+      ARSEM[Semantic Service]
+      ARDB[(PostgreSQL-AR)]
+      ARV[(Vector DB)]
+      ARCA[(Redis-AR Queue/Cache)]
+    end
+
+    GW --> CPAPI
+    CPAPI --> CPMSG
+    CPAPI --> CPSCH
+    CPSCH --> CPDB
+    CPMSG --> CPDB
+    CPAPI --> CPCA
+    CPSCH --> CPCA
+
+    CPSCH <-->|mTLS HTTPS + Signed Events| ARAPI
+    ARAPI --> ARO
+    ARO --> ARGW
+    ARO --> ARSEM
+    ARSEM --> ARV
+    ARO --> ARDB
+    ARAPI --> ARCA
+
+    ARGW --> EXT
 ```
 
-### 1.3 拆分触发条件（明确边界）
+### 1.3 容量与扩缩边界
 
-- **消息吞吐 > 5k 并发连接 / 峰值持续 2 周**：优先拆 `Messaging Service`。
-- **AI 调用成本和限流策略复杂化（> 4 provider，> 30 AI 实例）**：拆 `AI Gateway Service`。
-- **检索延迟或语义任务占用 > 30% CPU 时间**：拆 `Semantic Service`。
+- **Control Plane 扩容触发**：并发连接与消息扇出增长（> 5k 并发连接持续 2 周）。
+- **Agent Runtime 扩容触发**：AI 调用复杂度增长（> 4 provider，> 30 AI 实例）。
+- **语义组件扩容触发**：检索延迟或语义任务占用 > 30% CPU 时间。
+
+### 1.4 Control Plane 与 Agent Runtime 职责划分
+
+**Control Plane（治理与调度中枢）**
+- 接入层：统一认证鉴权（OIDC/JWT、API Key）、会话路由、连接管理。
+- 交互层：Room/Thread/Message 生命周期管理，回执与在线状态。
+- 权限层：RBAC + ABAC 策略判定、风险评分、审批门控。
+- 调度层：任务创建、优先级队列、运行实例分派、重试与取消。
+- 审计层：策略决策日志、操作审计、trace 聚合与检索。
+
+**Agent Runtime（执行与智能中枢）**
+- 执行层：接收任务租约（lease），执行 AI 协作工作流（parallel/sequential/debate/vote）。
+- AI 网关层：Provider 适配、模型路由、fallback、流式输出。
+- 工具层：工具调用、连接器访问、沙箱执行、结果标准化。
+- 语义层：向量索引、语义召回、上下文组装。
+- 结果层：状态回调、增量事件回传、成本/质量指标上报。
+
+**职责边界原则**
+- Control Plane 不直接调用外部模型和工具。
+- Agent Runtime 不做最终权限裁决与审批决策。
+- 用户可见状态以 Control Plane 为准，执行细节以 Agent Runtime 上报为准。
 
 ---
 
@@ -259,6 +315,46 @@ AI Gateway
 - 超时：截断上下文重试 1 次。
 - 工具调用失败：回退纯文本策略并记录错误。
 
+### 4.6 Control Plane <-> Agent Runtime 通信协议
+
+**传输与安全**
+- 协议：`HTTPS (REST) + Webhook Callback + 事件总线（可选）`。
+- 双向认证：mTLS（服务身份证书）+ HMAC 签名（消息级）。
+- 重放防护：`timestamp + nonce + signature`，默认 5 分钟有效期。
+
+**核心 API（Control Plane -> Agent Runtime）**
+- `POST /runtime/v1/tasks/dispatch`：下发任务（含 lease、priority、budget、toolPolicy）。
+- `POST /runtime/v1/tasks/{taskId}/cancel`：取消任务。
+- `GET /runtime/v1/tasks/{taskId}`：查询执行状态。
+
+**核心 Callback（Agent Runtime -> Control Plane）**
+- `POST /control/v1/runtime/events`：回传状态与增量结果。
+- 事件类型：`TASK_ACCEPTED | TASK_PROGRESS | TOOL_CALL | TASK_COMPLETED | TASK_FAILED | TASK_TIMEOUT`。
+
+**消息契约（示例）**
+```json
+{
+  "eventId": "evt_01J...",
+  "taskId": "task_01J...",
+  "interactionId": "int_01J...",
+  "eventType": "TASK_PROGRESS",
+  "status": "running",
+  "payload": {
+    "chunk": "正在执行依赖检查...",
+    "usage": {"inputTokens": 1200, "outputTokens": 80}
+  },
+  "trace": {"traceId": "tr_01J...", "spanId": "sp_01J..."},
+  "idempotencyKey": "task_01J...:17",
+  "emittedAt": "2026-02-14T00:00:00Z",
+  "signature": "sha256=..."
+}
+```
+
+**一致性与幂等**
+- 交付语义：至少一次（at-least-once），Control Plane 基于 `idempotencyKey` 去重。
+- 状态机约束：`queued -> accepted -> running -> completed|failed|timeout|canceled`。
+- 超时恢复：Control Plane 在 lease 过期后可重派；Agent Runtime 必须上报最终终态。
+
 ---
 
 ## 5. 权限与安全机制
@@ -305,31 +401,32 @@ AI 默认 `lead`，但以下动作需二次策略：
 
 ### 6.1 目标定义（8-10 周）
 
-- 可运行的单体系统。
+- 可运行的拆分系统：Control Plane + Agent Runtime 独立部署。
 - 支持三种通讯：人-人、人-AI、AI-AI。
 - 支持 AI 负责人级协作执行（含策略护栏）。
 - 接入 2 家以上模型 Provider，具备 fallback。
 
 ### 6.2 里程碑
 
-**M1（第 1-2 周）：通信与身份闭环**
+**M1（第 1-2 周）：Control Plane 基础闭环**
 - 完成统一身份、房间、消息、线程、回执。
-- WebSocket + REST 基础可用。
+- 建立调度器与任务状态机（仅 mock Runtime）。
 
-**M2（第 3-4 周）：AI 网关与人-AI执行**
+**M2（第 3-4 周）：Agent Runtime 执行闭环**
+- 实现 Runtime Task API、Orchestrator、Tool Runner 基础能力。
+- 打通 Control Plane -> Runtime dispatch 与 Runtime -> Control Plane callback。
+
+**M3（第 5-6 周）：AI 网关与人-AI执行**
 - 实现 Provider Registry、统一调用接口、流式输出。
-- 接入至少 2 个 AI Provider。
+- 接入至少 2 个 AI Provider，支持 fallback。
 
-**M3（第 5-6 周）：AI-AI 协作与语义中枢 MVP**
+**M4（第 7-8 周）：AI-AI 协作与语义中枢 MVP**
 - 实现 `parallel/debate/vote` 三种协作模式。
 - 建立最小语义检索（向量索引 + 上下文组装）。
 
-**M4（第 7-8 周）：安全/计量/可观测**
-- 权限护栏、预算限制、审计日志。
-- token/cost 指标与看板。
-
-**M5（第 9-10 周，可选）：拆分预演**
-- 在不改业务语义的前提下，将 AI Gateway 抽离为独立进程 PoC。
+**M5（第 9-10 周）：安全/计量/可观测收敛**
+- 权限护栏、预算限制、审计日志全链路贯通。
+- token/cost 指标与看板，补齐重试、超时、幂等等可靠性机制。
 
 ### 6.3 MVP 验收标准
 
@@ -337,13 +434,13 @@ AI 默认 `lead`，但以下动作需二次策略：
 2. AI 可在负责人权限下执行任务并被审计追踪。
 3. 任一 Provider 故障时可自动回退。
 4. 关键接口 p95 < 300ms（不含模型推理时延）。
-5. 所有核心动作具备策略判定与日志记录。
+5. Control Plane 与 Agent Runtime 断连/重连场景下，任务状态最终一致。
 
 ### 6.4 技术债与后续拆分
 
-- 技术债：单体内模块间仍共享部分存储模型。
-- 拆分优先级：`Messaging` -> `AI Gateway` -> `Semantic`。
-- 拆分原则：先抽接口契约，再迁移状态，再切流量。
+- 技术债：跨组件领域模型仍存在一定重复定义。
+- 后续演进：按领域继续细分为 `Messaging`、`AI Gateway`、`Semantic` 独立服务。
+- 演进原则：先稳固契约与状态机，再做存储与流量拆分。
 
 ---
 
@@ -355,7 +452,7 @@ AI 默认 `lead`，但以下动作需二次策略：
 - `PolicyService`：权限与风险判定。
 - `SemanticService`：索引写入、召回、上下文拼装。
 
-这些接口先以进程内 trait/interface 形态存在，后续可平滑替换为 RPC/消息总线调用。
+这些接口在拆分架构下以跨服务 API/事件契约存在，并保持可版本化演进。
 
 ## 附录 B：商业化最小闭环
 
