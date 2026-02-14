@@ -1,13 +1,15 @@
-//! Runtime abstractions for AI providers.
+//! Runtime abstractions and HTTP providers for AI integrations.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::stream::{self, Stream};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
+use tokio::time::sleep;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerateRequest {
@@ -34,12 +36,47 @@ pub enum StreamChunk {
 
 pub type ProviderStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, ProviderError>> + Send>>;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCallRequest {
+    pub tool_name: String,
+    pub input: serde_json::Value,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCallResponse {
+    pub output: serde_json::Value,
+    pub is_error: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TaskKind {
+    Generate(GenerateRequest),
+    ToolCall(ToolCallRequest),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct QueuedTask {
+    id: String,
+    attempts: u32,
+    kind: TaskKind,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ProviderError {
     #[error("mock provider has no queued response")]
     MockQueueEmpty,
     #[error("provider error: {0}")]
     Message(String),
+    #[error("http transport error: {0}")]
+    Transport(String),
+    #[error("http status {status}: {body}")]
+    HttpStatus { status: u16, body: String },
+    #[error("response decode error: {0}")]
+    Decode(String),
+    #[error("retry exhausted after {attempts} attempts: {last_error}")]
+    RetryExhausted { attempts: u32, last_error: String },
 }
 
 #[async_trait]
@@ -49,6 +86,227 @@ pub trait AIProvider: Send + Sync {
     async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, ProviderError>;
 
     async fn generate_stream(&self, req: GenerateRequest) -> Result<ProviderStream, ProviderError>;
+}
+
+#[async_trait]
+pub trait ToolProvider: Send + Sync {
+    async fn call_tool(&self, req: ToolCallRequest) -> Result<ToolCallResponse, ProviderError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct HttpJsonProvider {
+    client: reqwest::Client,
+    base_url: String,
+    api_key: String,
+    max_retries: u32,
+    retry_base_delay: Duration,
+}
+
+impl HttpJsonProvider {
+    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("reqwest client should build"),
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            max_retries: 3,
+            retry_base_delay: Duration::from_millis(200),
+        }
+    }
+
+    pub fn with_retry_policy(mut self, max_retries: u32, retry_base_delay: Duration) -> Self {
+        self.max_retries = max_retries;
+        self.retry_base_delay = retry_base_delay;
+        self
+    }
+
+    fn endpoint(&self, path: &str) -> String {
+        format!("{}{}", self.base_url.trim_end_matches('/'), path)
+    }
+
+    async fn post_json_with_retry<TReq, TRes>(
+        &self,
+        path: &str,
+        payload: &TReq,
+    ) -> Result<TRes, ProviderError>
+    where
+        TReq: Serialize + Sync,
+        TRes: DeserializeOwned,
+    {
+        let mut last_error = None;
+        for attempt in 0..=self.max_retries {
+            match self.try_post_json(path, payload).await {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    let retriable = matches!(
+                        err,
+                        ProviderError::Transport(_)
+                            | ProviderError::RetryExhausted { .. }
+                            | ProviderError::HttpStatus { status, .. } if status >= 500
+                    );
+                    last_error = Some(err.to_string());
+                    if retriable && attempt < self.max_retries {
+                        sleep(backoff(self.retry_base_delay, attempt)).await;
+                        continue;
+                    }
+                    if retriable {
+                        return Err(ProviderError::RetryExhausted {
+                            attempts: attempt + 1,
+                            last_error: last_error
+                                .unwrap_or_else(|| "unknown retry error".to_string()),
+                        });
+                    }
+                    return Err(err);
+                }
+            }
+        }
+
+        Err(ProviderError::RetryExhausted {
+            attempts: self.max_retries + 1,
+            last_error: last_error.unwrap_or_else(|| "unknown retry error".to_string()),
+        })
+    }
+
+    async fn try_post_json<TReq, TRes>(&self, path: &str, payload: &TReq) -> Result<TRes, ProviderError>
+    where
+        TReq: Serialize + Sync,
+        TRes: DeserializeOwned,
+    {
+        let response = self
+            .client
+            .post(self.endpoint(path))
+            .bearer_auth(&self.api_key)
+            .json(payload)
+            .send()
+            .await
+            .map_err(|err| ProviderError::Transport(err.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unable to read body>".to_string());
+            return Err(ProviderError::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        response
+            .json::<TRes>()
+            .await
+            .map_err(|err| ProviderError::Decode(err.to_string()))
+    }
+}
+
+#[async_trait]
+impl AIProvider for HttpJsonProvider {
+    fn name(&self) -> &'static str {
+        "http-json"
+    }
+
+    async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
+        self.post_json_with_retry("/v1/generate", &req).await
+    }
+
+    async fn generate_stream(&self, req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
+        match self
+            .post_json_with_retry::<_, Vec<StreamChunk>>("/v1/generate_stream", &req)
+            .await
+        {
+            Ok(chunks) => Ok(Box::pin(stream::iter(chunks.into_iter().map(Ok)))),
+            Err(ProviderError::HttpStatus { status: 404, .. }) => {
+                let generated = self.generate(req).await?;
+                Ok(Box::pin(stream::iter(vec![
+                    Ok(StreamChunk::Delta {
+                        text: generated.content,
+                    }),
+                    Ok(StreamChunk::Done),
+                ])))
+            }
+            Err(err) => Err(err),
+        }
+    }
+}
+
+#[async_trait]
+impl ToolProvider for HttpJsonProvider {
+    async fn call_tool(&self, req: ToolCallRequest) -> Result<ToolCallResponse, ProviderError> {
+        self.post_json_with_retry("/v1/tools/call", &req).await
+    }
+}
+
+#[derive(Debug)]
+pub struct ControlPlaneClient {
+    http: HttpJsonProvider,
+    queue: Mutex<VecDeque<QueuedTask>>,
+}
+
+impl ControlPlaneClient {
+    pub fn new(http: HttpJsonProvider) -> Self {
+        Self {
+            http,
+            queue: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    pub fn enqueue_generate(&self, task_id: impl Into<String>, req: GenerateRequest) {
+        self.push_task(QueuedTask {
+            id: task_id.into(),
+            attempts: 0,
+            kind: TaskKind::Generate(req),
+        });
+    }
+
+    pub fn enqueue_tool_call(&self, task_id: impl Into<String>, req: ToolCallRequest) {
+        self.push_task(QueuedTask {
+            id: task_id.into(),
+            attempts: 0,
+            kind: TaskKind::ToolCall(req),
+        });
+    }
+
+    pub fn queued_tasks(&self) -> usize {
+        self.queue.lock().expect("task queue poisoned").len()
+    }
+
+    pub async fn drain_once(&self) -> Result<Option<serde_json::Value>, ProviderError> {
+        let task = self
+            .queue
+            .lock()
+            .expect("task queue poisoned")
+            .pop_front();
+
+        match task {
+            None => Ok(None),
+            Some(task) => self.dispatch_task(task).await.map(Some),
+        }
+    }
+
+    fn push_task(&self, task: QueuedTask) {
+        self.queue
+            .lock()
+            .expect("task queue poisoned")
+            .push_back(task);
+    }
+
+    async fn dispatch_task(&self, task: QueuedTask) -> Result<serde_json::Value, ProviderError> {
+        #[derive(Debug, Deserialize)]
+        struct ControlPlaneEnvelope {
+            result: serde_json::Value,
+        }
+
+        let path = match task.kind {
+            TaskKind::Generate(_) => "/v1/tasks/generate",
+            TaskKind::ToolCall(_) => "/v1/tasks/tool-call",
+        };
+
+        let envelope: ControlPlaneEnvelope = self.http.post_json_with_retry(path, &task).await?;
+        Ok(envelope.result)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -106,13 +364,21 @@ impl AIProvider for MockProvider {
     }
 }
 
+fn backoff(base: Duration, attempt: u32) -> Duration {
+    base.saturating_mul(1_u32 << attempt)
+}
+
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
-
     use super::{
-        AIProvider, GenerateRequest, GenerateResponse, MockProvider, ProviderError, StreamChunk,
+        AIProvider, ControlPlaneClient, GenerateRequest, GenerateResponse, HttpJsonProvider,
+        MockProvider, ProviderError, StreamChunk, ToolCallRequest,
     };
+    use futures::StreamExt;
+    use httpmock::Method::POST;
+    use httpmock::MockServer;
+    use serde_json::json;
+    use std::time::Duration;
 
     fn request() -> GenerateRequest {
         GenerateRequest {
@@ -185,12 +451,82 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mock_stream_reports_queued_error() {
-        let provider = MockProvider::new();
-        provider.enqueue_stream(Err(ProviderError::Message("upstream timeout".to_string())));
+    async fn http_provider_calls_real_generate_endpoint() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/generate");
+                then.status(200).json_body(json!({
+                    "content": "hello from control plane",
+                    "model": "gpt-4o-mini",
+                    "finish_reason": "stop"
+                }));
+            })
+            .await;
 
-        let err = provider.generate_stream(request()).await.unwrap_err();
+        let provider = HttpJsonProvider::new(server.base_url(), "test-key");
+        let response = provider.generate(request()).await.unwrap();
 
-        assert_eq!(err, ProviderError::Message("upstream timeout".to_string()));
+        mock.assert_async().await;
+        assert_eq!(response.content, "hello from control plane");
+    }
+
+    #[tokio::test]
+    async fn http_provider_retries_on_server_error() {
+        let server = MockServer::start_async().await;
+        let flaky = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/generate");
+                then.status(500).body("upstream timeout");
+            })
+            .await;
+
+        let success = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/generate");
+                then.status(200).json_body(json!({
+                    "content": "retry success",
+                    "model": "gpt-4o-mini",
+                    "finish_reason": "stop"
+                }));
+            })
+            .await;
+
+        flaky.expect(1);
+        success.expect(1);
+
+        let provider = HttpJsonProvider::new(server.base_url(), "test-key")
+            .with_retry_policy(1, Duration::from_millis(10));
+
+        let response = provider.generate(request()).await.unwrap();
+        assert_eq!(response.content, "retry success");
+    }
+
+    #[tokio::test]
+    async fn task_queue_dispatches_tool_call_to_control_plane() {
+        let server = MockServer::start_async().await;
+        let dispatched = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/v1/tasks/tool-call");
+                then.status(200)
+                    .json_body(json!({"result": {"status": "ok", "tool": "search"}}));
+            })
+            .await;
+
+        let queue = ControlPlaneClient::new(HttpJsonProvider::new(server.base_url(), "test-key"));
+        queue.enqueue_tool_call(
+            "task_1",
+            ToolCallRequest {
+                tool_name: "search".to_string(),
+                input: json!({"query": "nexis"}),
+                metadata: None,
+            },
+        );
+
+        let result = queue.drain_once().await.unwrap().unwrap();
+
+        dispatched.assert_async().await;
+        assert_eq!(result["status"], "ok");
+        assert_eq!(queue.queued_tasks(), 0);
     }
 }
