@@ -272,6 +272,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ by the Nexis Team**
 
-[Website](https://nexis.ai) • [Documentation](https://docs.nexis.ai) • [Discord](https://discord.gg/VMPC28gyQB)
+[Discord](https://discord.gg/VMPC28gyQB) • [GitHub](https://github.com/schorsch888/Nexis)
 
 </div>
