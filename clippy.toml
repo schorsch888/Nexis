@@ -1,0 +1,32 @@
+# Nexis Clippy 配置
+# 严格模式，确保代码质量
+
+# 认知复杂度阈值
+cognitive-complexity-threshold = 25
+
+# 文档必须的项
+missing-docs-in-crate-items = true
+
+# 单行表达式最大长度
+single-char-binding-names-threshold = 4
+
+# 类型复杂度阈值
+type-complexity-threshold = 250
+
+# 函数参数过多阈值
+too-many-arguments-threshold = 7
+
+# 函数行数阈值
+too-many-lines-threshold = 100
+
+# 大栈数组阈值
+array-size-threshold = 512
+
+# 结构体字段过多阈值
+max-struct-bools = 3
+
+# 向量初始容量阈值
+vec-box-size-threshold = 4096
+
+# 标准宏括号
+standard-macro-braces = []

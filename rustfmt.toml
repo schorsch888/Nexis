@@ -1,0 +1,64 @@
+# Nexis Rust 代码格式化配置
+# 基于 Rust 官方标准，额外配置以提高代码可读性
+
+# 最大行宽
+max_width = 100
+
+# 使用 4 空格缩进
+tab_spaces = 4
+
+# 使用空格而非制表符
+hard_tabs = false
+
+# 函数参数换行策略
+fn_params_layout = "Tall"
+
+# 导入分组和排序
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# 结构体字面量宽度
+struct_lit_single_line = true
+
+# 链式调用换行
+chain_width = 60
+
+# 单行 if-else 表达式最大宽度
+single_line_if_else_max_width = 50
+
+# 强制使用 Unix 换行符
+newline_style = "Unix"
+
+# 格式化字符串字面量
+format_strings = false
+
+# 格式化宏调用
+format_macro_matchers = true
+
+# 文档注释代码块格式化
+format_code_in_doc_comments = true
+
+# 强制使用字段初始简写
+use_field_init_shorthand = true
+
+# 强制使用 try! 宏转 ?
+use_try_shorthand = false
+
+# 格式化内联属性
+inline_attribute_width = 0
+
+# 控制流换行
+control_brace_style = "AlwaysSameLine"
+
+# 枚举 Discriminant 对齐
+enum_discrim_align_threshold = 20
+
+# 结构体字段对齐
+struct_field_align_threshold = 20
+
+# 报告未格式化代码
+report_unformatted = true
+
+# 报告修复
+report_fixmes = true
