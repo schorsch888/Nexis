@@ -1,60 +1,53 @@
-# 信息安全体系总览
+# Security
 
-> 适用范围：Nexis 自托管与企业私有化部署  
-> 分层策略：`Baseline Profile` + `Enterprise Profile`
+> Scope: Nexis self-hosted and enterprise deployments
+> Layered strategy: `Baseline Profile` + `Enterprise Profile`
 
-## 1. 分层定位
+## 1. Layered Positioning
 
-### [Baseline] 开源自托管
-- 目标对象：单组织 / 中小规模团队
-- 安全目标：在不依赖第三方云安全服务的前提下，建立可运行、可审计、可维护的基础安全体系
-- 设计原则：最小权限、默认拒绝、可观测、自动化检查优先
+### [Baseline] Open-source self-hosted
+- Target: Single organization / Small to medium teams
+- Goal: Build runnable, auditable, maintainable security without third-party cloud services
+- Principles: Least privilege, deny by default, observable, automated checks
 
-### [Enterprise] 企业私有化
-- 目标对象：多租户、合规驱动、审计要求高的企业环境
-- 安全目标：满足 SOC2 / ISO27001 控制域落地证据要求，强化租户隔离、审计追踪、访问治理
-- 设计原则：分层隔离、集中审计、强认证、可证明合规
+### [Enterprise] Enterprise private deployment
+- Target: Multi-tenant, compliance-driven, high audit requirements
+- Goal: Meet SOC2 / ISO27001 control requirements with tenant isolation, audit trails, access governance
+- Principles: Layered isolation, centralized audit, strong authentication, provable compliance
 
-## 2. 控制域映射
+## 2. Control Domain Mapping
 
-| 控制域 | Baseline | Enterprise |
-|---|---|---|
-| 身份认证 | OIDC/JWT 或内部 IdP | 企业 IdP + MFA + 条件访问 |
-| 访问控制 | RBAC 最小权限 | RBAC + ABAC + 租户策略引擎 |
-| 机密管理 | 本地 Vault/KMS（自建）或环境变量 + 加密文件 | 专用 HSM/KMS + 双人审批 + 自动轮转 |
-| 网络安全 | TLS、内网分段、最小暴露端口 | 零信任分段、mTLS 全链路、东西向策略 |
-| 审计日志 | 结构化日志、篡改防护存储 | 不可变审计链、集中 SIEM、保留策略 |
-| 漏洞管理 | SAST + 依赖审计 + Secrets 扫描 | 增加镜像签名、SBOM、基线差异审计 |
-| 合规治理 | 安全基线与事件响应 | SOC2/ISO27001 控制映射与证据自动化 |
+| Control Domain | Baseline | Enterprise |
+|----------------|----------|------------|
+| Authentication | OIDC/JWT or internal IdP | Enterprise IdP + MFA + conditional access |
+| Access Control | RBAC least privilege | RBAC + ABAC + tenant policy engine |
+| Secret Management | Local Vault/KMS or env vars | Dedicated HSM/KMS + dual approval + auto rotation |
+| Network Security | TLS, internal segmentation | Zero-trust segmentation, mTLS, east-west policies |
+| Audit Logs | Structured logs, tamper-proof storage | Immutable audit chain, centralized SIEM, retention policies |
+| Vulnerability Management | SAST + dependency audit + secrets scanning | Add image signing, SBOM, baseline diff audit |
+| Compliance Governance | Security baseline and incident response | SOC2/ISO27001 control mapping and evidence automation |
 
-## 3. 落地顺序（建议）
+## 3. Implementation Order
 
-1. 建立仓库安全闸门：pre-commit + CI 安全扫描。
-2. 完成 Baseline 配置并通过检查清单。
-3. 引入多租户隔离与企业级审计能力。
-4. 将 Enterprise 控制项映射到 SOC2/ISO27001 证据库。
+1. Establish repository security gates: pre-commit + CI security scanning
+2. Complete Baseline configuration and pass checklists
+3. Introduce multi-tenant isolation and enterprise audit capabilities
+4. Map Enterprise controls to SOC2/ISO27001 evidence library
 
-## 4. 关键配置文件
+## 4. Key Configuration Files
 
-- Baseline 细则：`docs/security/baseline.md`
-- Enterprise 细则：`docs/security/enterprise.md`
-- 环境变量模板：`.env.example`
-- 本地提交检查：`.pre-commit-config.yaml`
-- CI 安全扫描：`.github/workflows/security.yml`
-- 对外安全政策：`SECURITY.md`
+- Baseline details: `docs/security/baseline.md`
+- Enterprise details: `docs/security/enterprise.md`
+- Environment template: `.env.example`
+- Local commit checks: `.pre-commit-config.yaml`
+- CI security scanning: `.github/workflows/security.yml`
+- Public security policy: `SECURITY.md`
 
-## 5. 快速检查清单
+## 5. Quick Checklist
 
-### [Baseline] 快速验收
-- [ ] 所有密钥均通过环境变量或密文文件注入，无明文入库
-- [ ] pre-commit 启用 secrets 扫描与基础 SAST
-- [ ] CI 启用 `cargo audit`、`gitleaks`、`trivy`
-- [ ] 生产环境强制 TLS 与最小权限服务账户
-- [ ] 安全事件处理流程可执行并完成演练
-
-### [Enterprise] 快速验收
-- [ ] 多租户隔离（身份、数据、网络、缓存）策略已启用
-- [ ] 审计日志不可变存储并满足保留与检索要求
-- [ ] MFA、审批流、紧急访问（Break Glass）已定义并演练
-- [ ] SBOM、镜像签名、发布审批链已打通
-- [ ] SOC2/ISO27001 控制项具备可追踪证据
+### [Baseline] Quick Acceptance
+- [ ] All secrets injected via environment variables, no plaintext in repo
+- [ ] pre-commit enabled with secrets scanning and basic SAST
+- [ ] CI security scanning passes (gitleaks, trivy, audit)
+- [ ] TLS enabled for all external endpoints
+- [ ] Audit logging enabled
