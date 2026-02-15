@@ -12,16 +12,27 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock, Semaphore};
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct AppState {
-    rooms: HashMap<String, Room>,
-    room_messages: HashMap<String, Vec<StoredMessage>>,
+    rooms: Arc<RwLock<HashMap<String, Room>>>,
+    room_messages: Arc<RwLock<HashMap<String, Vec<StoredMessage>>>>,
+    write_gate: Arc<Semaphore>,
 }
 
-type SharedState = Arc<RwLock<AppState>>;
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            rooms: Arc::new(RwLock::new(HashMap::new())),
+            room_messages: Arc::new(RwLock::new(HashMap::new())),
+            write_gate: Arc::new(Semaphore::new(2_048)),
+        }
+    }
+}
+
+type SharedState = AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Room {
@@ -75,7 +86,7 @@ struct RoomInfoResponse {
 
 /// Build the main router for the gateway
 pub fn build_routes() -> Router {
-    let state = Arc::new(RwLock::new(AppState::default()));
+    let state = AppState::default();
 
     Router::new()
         .route("/health", get(health_check))
@@ -119,8 +130,16 @@ async fn create_room(
         name: room.name.clone(),
     };
 
-    let mut state = state.write().await;
-    state.rooms.insert(room.id.clone(), room);
+    let Ok(_permit) = state.write_gate.clone().acquire_owned().await else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "service unavailable" })),
+        )
+            .into_response();
+    };
+
+    let mut rooms = state.rooms.write().await;
+    rooms.insert(room.id.clone(), room);
 
     (StatusCode::CREATED, Json(response)).into_response()
 }
@@ -137,14 +156,15 @@ async fn send_message(
             .into_response();
     }
 
-    let mut state = state.write().await;
-    if !state.rooms.contains_key(&payload.room_id) {
+    let rooms = state.rooms.read().await;
+    if !rooms.contains_key(&payload.room_id) {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "room not found" })),
         )
             .into_response();
     }
+    drop(rooms);
 
     let message = StoredMessage {
         id: format!("msg_{}", Uuid::new_v4().simple()),
@@ -155,8 +175,16 @@ async fn send_message(
         id: message.id.clone(),
     };
 
-    state
-        .room_messages
+    let Ok(_permit) = state.write_gate.clone().acquire_owned().await else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "service unavailable" })),
+        )
+            .into_response();
+    };
+
+    let mut messages = state.room_messages.write().await;
+    messages
         .entry(payload.room_id)
         .or_default()
         .push(message);
@@ -165,20 +193,28 @@ async fn send_message(
 }
 
 async fn get_room(State(state): State<SharedState>, Path(id): Path<String>) -> impl IntoResponse {
-    let state = state.read().await;
-    let Some(room) = state.rooms.get(&id) else {
+    let rooms = state.rooms.read().await;
+    let Some(room) = rooms.get(&id) else {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "room not found" })),
         )
             .into_response();
     };
+    let room = room.clone();
+    drop(rooms);
 
-    let messages = state.room_messages.get(&id).cloned().unwrap_or_default();
+    let messages = state
+        .room_messages
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .unwrap_or_default();
     let response = RoomInfoResponse {
-        id: room.id.clone(),
-        name: room.name.clone(),
-        topic: room.topic.clone(),
+        id: room.id,
+        name: room.name,
+        topic: room.topic,
         messages,
     };
 
@@ -190,13 +226,21 @@ async fn handle_socket(socket: WebSocket) {
     use futures::{SinkExt, StreamExt};
     
     let (mut sender, mut receiver) = socket.split();
+    let (tx, mut rx) = mpsc::channel::<Message>(256);
+
+    let writer = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
     
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
                 tracing::debug!("Received: {}", text);
-                // Echo back for now
-                if sender.send(Message::Text(text)).await.is_err() {
+                if tx.send(Message::Text(text)).await.is_err() {
                     break;
                 }
             }
@@ -211,6 +255,8 @@ async fn handle_socket(socket: WebSocket) {
             _ => {}
         }
     }
+
+    writer.abort();
 }
 
 #[cfg(test)]
