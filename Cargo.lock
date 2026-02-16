@@ -1753,6 +1753,7 @@ dependencies = [
  "futures",
  "httpmock",
  "nexis-core",
+ "nexis-runtime",
  "reqwest",
  "serde",
  "serde_json",

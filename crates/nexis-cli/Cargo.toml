@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 nexis-core = { path = "../nexis-core" }
+nexis-runtime = { path = "../nexis-runtime" }
 clap.workspace = true
 futures = { workspace = true }
 reqwest = { workspace = true }

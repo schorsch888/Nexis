@@ -58,6 +58,15 @@ pub enum Commands {
         #[arg(long, default_value_t = 5_000, help = "Receive timeout in milliseconds")]
         timeout_ms: u64,
     },
+    #[command(about = "Test AI provider connection")]
+    TestProvider {
+        #[arg(short, long, help = "Provider to test (openai or anthropic)")]
+        provider: String,
+        #[arg(short, long, help = "Prompt to send")]
+        prompt: String,
+        #[arg(short, long, help = "Use streaming")]
+        stream: bool,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -257,6 +266,57 @@ pub async fn run(cli: Cli) -> Result<String, CliError> {
                 None => Ok("ws connected".to_string()),
             }
         }
+        Commands::TestProvider {
+            provider,
+            prompt,
+            stream,
+        } => {
+            test_provider(&provider, &prompt, stream).await
+        }
+    }
+}
+
+async fn test_provider(provider: &str, prompt: &str, stream: bool) -> Result<String, CliError> {
+    use nexis_runtime::{AIProvider, GenerateRequest, AnthropicProvider, OpenAIProvider};
+    use std::sync::Arc;
+
+    println!("Testing {} provider...", provider);
+
+    let provider: Arc<dyn AIProvider> = match provider {
+        "openai" => Arc::new(OpenAIProvider::from_env()),
+        "anthropic" => Arc::new(AnthropicProvider::from_env()),
+        _ => return Err(CliError::InvalidArgument(format!("Unknown provider: {}", provider))),
+    };
+
+    let req = GenerateRequest {
+        prompt: prompt.to_string(),
+        model: None,
+        max_tokens: Some(100),
+        temperature: Some(0.7),
+        metadata: None,
+    };
+
+    if stream {
+        println!("Streaming response:\n");
+        use futures::StreamExt;
+        let mut stream = provider.generate_stream(req).await
+            .map_err(|e| CliError::HttpTransport(e.to_string()))?;
+        
+        while let Some(chunk) = stream.next().await {
+            match chunk.map_err(|e| CliError::HttpTransport(e.to_string()))? {
+                nexis_runtime::StreamChunk::Delta { text } => print!("{}", text),
+                nexis_runtime::StreamChunk::Done => println!(),
+            }
+        }
+        Ok("Stream completed".to_string())
+    } else {
+        println!("Sending request...\n");
+        let resp = provider.generate(req).await
+            .map_err(|e| CliError::HttpTransport(e.to_string()))?;
+        println!("Response: {}", resp.content);
+        println!("Model: {:?}", resp.model);
+        println!("Finish reason: {:?}", resp.finish_reason);
+        Ok(format!("Response: {}", resp.content))
     }
 }
 
