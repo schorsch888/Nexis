@@ -65,8 +65,54 @@ impl AIProvider for OpenAIProvider {
         "openai"
     }
     
-    async fn generate(&self, _req: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
-        todo!("Implement generate")
+    async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
+        let openai_req = ChatCompletionRequest {
+            model: self.get_model(&req),
+            messages: vec![
+                Message {
+                    role: "user".to_string(),
+                    content: req.prompt,
+                }
+            ],
+            max_tokens: req.max_tokens,
+            temperature: req.temperature,
+            stream: None,
+        };
+
+        let response = self.client
+            .post(self.endpoint("/chat/completions"))
+            .bearer_auth(&self.api_key)
+            .json(&openai_req)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Transport(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_else(|_| "<unable to read body>".to_string());
+            return Err(ProviderError::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let openai_resp: ChatCompletionResponse = response
+            .json()
+            .await
+            .map_err(|e| ProviderError::Decode(e.to_string()))?;
+
+        // Extract the assistant's message
+        let content = openai_resp
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .ok_or_else(|| ProviderError::Decode("No choices in response".to_string()))?;
+
+        Ok(GenerateResponse {
+            content,
+            model: Some(openai_resp.model),
+            finish_reason: openai_resp.choices.first().and_then(|c| c.finish_reason.clone()),
+        })
     }
     
     async fn generate_stream(&self, _req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
@@ -147,6 +193,8 @@ struct Delta {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
+    use serde_json::json;
     
     #[test]
     fn provider_creation_explicit() {
@@ -255,5 +303,91 @@ mod tests {
         assert_eq!(resp.choices.len(), 1);
         assert_eq!(resp.choices[0].message.content, "Hello there!");
         assert_eq!(resp.usage.unwrap().total_tokens, 15);
+    }
+    
+    #[tokio::test]
+    async fn generate_calls_openai_api() {
+        let server = MockServer::start();
+        
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .header("Authorization", "Bearer test-key");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(json!({
+                    "id": "chatcmpl-test",
+                    "object": "chat.completion",
+                    "created": 1234567890,
+                    "model": "gpt-4",
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Hello! How can I help you?"
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 20,
+                        "total_tokens": 30
+                    }
+                }));
+        });
+        
+        let provider = OpenAIProvider::new(
+            "test-key",
+            server.base_url(),
+            "gpt-4"
+        );
+        
+        let req = GenerateRequest {
+            prompt: "Hello".to_string(),
+            model: None,
+            max_tokens: Some(100),
+            temperature: Some(0.7),
+            metadata: None,
+        };
+        
+        let resp = provider.generate(req).await.unwrap();
+        
+        mock.assert();
+        assert_eq!(resp.content, "Hello! How can I help you?");
+        assert_eq!(resp.model, Some("gpt-4".to_string()));
+        assert_eq!(resp.finish_reason, Some("stop".to_string()));
+    }
+    
+    #[tokio::test]
+    async fn generate_handles_api_error() {
+        let server = MockServer::start();
+        
+        server.mock(|when, then| {
+            when.method(POST).path("/chat/completions");
+            then.status(401)
+                .json_body(json!({
+                    "error": {
+                        "message": "Invalid API key",
+                        "type": "invalid_request_error"
+                    }
+                }));
+        });
+        
+        let provider = OpenAIProvider::new("bad-key", server.base_url(), "gpt-4");
+        
+        let req = GenerateRequest {
+            prompt: "Hello".to_string(),
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            metadata: None,
+        };
+        
+        let err = provider.generate(req).await.unwrap_err();
+        
+        match err {
+            ProviderError::HttpStatus { status, .. } => assert_eq!(status, 401),
+            _ => panic!("Expected HttpStatus error"),
+        }
     }
 }
