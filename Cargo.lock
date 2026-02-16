@@ -1855,6 +1855,7 @@ dependencies = [
  "futures",
  "httpmock",
  "reqwest",
+ "reqwest-eventsource",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

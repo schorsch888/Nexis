@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 
-use crate::{AIProvider, GenerateRequest, GenerateResponse, ProviderError, ProviderStream};
+use crate::{AIProvider, GenerateRequest, GenerateResponse, ProviderError, ProviderStream, StreamChunk};
+use futures::StreamExt;
 
 const OPENAI_API_BASE: &str = "https://api.openai.com/v1";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
@@ -115,8 +116,70 @@ impl AIProvider for OpenAIProvider {
         })
     }
     
-    async fn generate_stream(&self, _req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
-        todo!("Implement generate_stream")
+    async fn generate_stream(&self, req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
+        use futures::stream;
+        use reqwest_eventsource::{Event, EventSource};
+        
+        let openai_req = ChatCompletionRequest {
+            model: self.get_model(&req),
+            messages: vec![
+                Message {
+                    role: "user".to_string(),
+                    content: req.prompt,
+                }
+            ],
+            max_tokens: req.max_tokens,
+            temperature: req.temperature,
+            stream: Some(true),
+        };
+        
+        let client = self.client.clone();
+        let endpoint = self.endpoint("/chat/completions");
+        let api_key = self.api_key.clone();
+        
+        // Create EventSource for SSE streaming
+        let event_source = EventSource::new(
+            client
+                .post(&endpoint)
+                .bearer_auth(&api_key)
+                .json(&openai_req)
+        )
+        .map_err(|e| ProviderError::Transport(e.to_string()))?;
+        
+        // Convert EventSource to Stream<StreamChunk>
+        let stream = event_source
+            .take_while(|event| {
+                futures::future::ready(!matches!(event, Ok(Event::Message(ref msg)) if msg.data == "[DONE]"))
+            })
+            .filter_map(|event| async move {
+                match event {
+                    Ok(Event::Message(msg)) => {
+                        // Parse the chunk
+                        let chunk: Result<ChatCompletionChunk, _> = serde_json::from_str(&msg.data);
+                        
+                        match chunk {
+                            Ok(chunk) => {
+                                // Extract text from delta
+                                let text = chunk.choices.first()
+                                    .and_then(|c| c.delta.content.clone())
+                                    .unwrap_or_default();
+                                
+                                if text.is_empty() {
+                                    None
+                                } else {
+                                    Some(Ok(StreamChunk::Delta { text }))
+                                }
+                            }
+                            Err(e) => Some(Err(ProviderError::Decode(e.to_string()))),
+                        }
+                    }
+                    Ok(Event::Open) => None,
+                    Err(e) => Some(Err(ProviderError::Transport(e.to_string()))),
+                }
+            })
+            .chain(stream::iter(vec![Ok(StreamChunk::Done)]));
+        
+        Ok(Box::pin(stream))
     }
 }
 
@@ -193,8 +256,10 @@ struct Delta {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamChunk;
     use httpmock::prelude::*;
     use serde_json::json;
+    use futures::StreamExt;
     
     #[test]
     fn provider_creation_explicit() {
@@ -389,5 +454,49 @@ mod tests {
             ProviderError::HttpStatus { status, .. } => assert_eq!(status, 401),
             _ => panic!("Expected HttpStatus error"),
         }
+    }
+    
+    #[tokio::test]
+    async fn generate_stream_emits_chunks() {
+        use futures::StreamExt;
+        
+        let server = MockServer::start();
+        
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .header("Authorization", "Bearer test-key");
+            then.status(200)
+                .header("content-type", "text/event-stream")
+                .body(concat!(
+                    "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n",
+                    "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n",
+                    "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"!\"},\"finish_reason\":null}]}\n\n",
+                    "data: [DONE]\n\n"
+                ));
+        });
+        
+        let provider = OpenAIProvider::new("test-key", server.base_url(), "gpt-4");
+        
+        let req = GenerateRequest {
+            prompt: "Hi".to_string(),
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            metadata: None,
+        };
+        
+        let mut stream = provider.generate_stream(req).await.unwrap();
+        
+        let mut chunks = vec![];
+        while let Some(chunk) = stream.next().await {
+            chunks.push(chunk.unwrap());
+        }
+        
+        mock.assert();
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0], StreamChunk::Delta { text: "Hello".to_string() });
+        assert_eq!(chunks[1], StreamChunk::Delta { text: "!".to_string() });
+        assert_eq!(chunks[2], StreamChunk::Done);
     }
 }
