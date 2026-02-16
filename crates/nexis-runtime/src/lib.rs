@@ -9,7 +9,7 @@ pub mod providers;
 pub mod tool;
 
 // Re-export provider types
-pub use providers::OpenAIProvider;
+pub use providers::{AnthropicProvider, OpenAIProvider};
 
 // Re-export tool types for convenience
 pub use tool::{
