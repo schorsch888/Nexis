@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 
@@ -73,6 +74,76 @@ impl AIProvider for OpenAIProvider {
     }
 }
 
+// ============================================================================
+// OpenAI API Types
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+struct ChatCompletionRequest {
+    model: String,
+    messages: Vec<Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Message {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCompletionResponse {
+    id: String,
+    object: String,
+    created: u64,
+    model: String,
+    choices: Vec<Choice>,
+    usage: Option<Usage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    index: u32,
+    message: Message,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Usage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCompletionChunk {
+    id: String,
+    object: String,
+    created: u64,
+    model: String,
+    choices: Vec<StreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamChoice {
+    index: u32,
+    delta: Delta,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Delta {
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    content: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,5 +204,56 @@ mod tests {
             let provider = OpenAIProvider::from_env();
             assert_eq!(provider.name(), "openai");
         }
+    }
+    
+    #[test]
+    fn chat_completion_request_serialization() {
+        let req = ChatCompletionRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![
+                Message {
+                    role: "user".to_string(),
+                    content: "Hello".to_string(),
+                }
+            ],
+            max_tokens: Some(100),
+            temperature: Some(0.7),
+            stream: None,
+        };
+        
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"model\":\"gpt-4\""));
+        assert!(json.contains("\"max_tokens\":100"));
+        assert!(json.contains("\"temperature\":0.7"));
+        assert!(!json.contains("\"stream\""));
+    }
+    
+    #[test]
+    fn chat_completion_response_deserialization() {
+        let json = r#"{
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "gpt-4",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello there!"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15
+            }
+        }"#;
+        
+        let resp: ChatCompletionResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.id, "chatcmpl-123");
+        assert_eq!(resp.choices.len(), 1);
+        assert_eq!(resp.choices[0].message.content, "Hello there!");
+        assert_eq!(resp.usage.unwrap().total_tokens, 15);
     }
 }
