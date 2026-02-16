@@ -86,6 +86,7 @@ struct AnthropicMessage {
 
 /// Anthropic Messages Response
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct MessagesResponse {
     id: String,
     #[serde(rename = "type")]
@@ -134,6 +135,7 @@ enum StreamEvent {
 
 /// Anthropic Delta Content
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct DeltaContent {
     #[serde(rename = "type")]
     #[allow(dead_code)]

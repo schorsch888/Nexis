@@ -6,10 +6,14 @@
 //! - Control plane client for task management
 
 pub mod providers;
+pub mod registry;
 pub mod tool;
 
 // Re-export provider types
 pub use providers::{AnthropicProvider, OpenAIProvider};
+
+// Re-export registry types
+pub use registry::ProviderRegistry;
 
 // Re-export tool types for convenience
 pub use tool::{
