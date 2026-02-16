@@ -1,4 +1,17 @@
 //! Runtime abstractions and HTTP providers for AI integrations.
+//!
+//! This crate provides:
+//! - AI provider traits and implementations
+//! - Tool calling system for AI agents
+//! - Control plane client for task management
+
+pub mod tool;
+
+// Re-export tool types for convenience
+pub use tool::{
+    CodeExecuteTool, FileReadTool, Tool, ToolCall, ToolCallRequest, ToolCallResponse,
+    ToolDefinition, ToolError, ToolProvider, ToolRegistry, ToolResult, WebSearchTool,
+};
 
 use std::collections::VecDeque;
 use std::pin::Pin;
