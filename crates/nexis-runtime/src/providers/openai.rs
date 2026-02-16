@@ -206,6 +206,7 @@ struct Message {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ChatCompletionResponse {
     id: String,
     object: String,
@@ -216,6 +217,7 @@ struct ChatCompletionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Choice {
     index: u32,
     message: Message,
@@ -223,6 +225,7 @@ struct Choice {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Usage {
     prompt_tokens: u32,
     completion_tokens: u32,
@@ -230,6 +233,7 @@ struct Usage {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ChatCompletionChunk {
     id: String,
     object: String,
@@ -239,6 +243,7 @@ struct ChatCompletionChunk {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct StreamChoice {
     index: u32,
     delta: Delta,
@@ -246,6 +251,7 @@ struct StreamChoice {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Delta {
     #[serde(default)]
     role: Option<String>,
@@ -259,7 +265,6 @@ mod tests {
     use crate::StreamChunk;
     use httpmock::prelude::*;
     use serde_json::json;
-    use futures::StreamExt;
     
     #[test]
     fn provider_creation_explicit() {
