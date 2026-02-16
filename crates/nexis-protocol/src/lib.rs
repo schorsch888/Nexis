@@ -56,7 +56,7 @@ impl MemberId {
 
     pub fn member_type(&self) -> MemberType {
         let parts: Vec<&str> = self.0.split(':').collect();
-        match parts.get(1) {
+        match parts.get(1).copied() {
             Some("human") => MemberType::Human,
             Some("agent") => MemberType::Agent,
             Some("bot") => MemberType::Bot,
@@ -105,7 +105,7 @@ impl std::fmt::Display for MemberId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Action {
     Read,
@@ -127,6 +127,10 @@ impl Permissions {
     }
 
     pub fn can(&self, action: Action) -> bool {
+        // Admin action implies all other actions
+        if self.actions.contains(&Action::Admin) {
+            return true;
+        }
         self.actions.contains(&action)
     }
 
@@ -136,7 +140,7 @@ impl Permissions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum MessageContent {
     Text { text: String },
     Code { code: String, language: Option<String> },
@@ -222,7 +226,7 @@ mod tests {
 
     #[test]
     fn member_id_rejects_empty_identifier() {
-        let err = "nexis:ai:".parse::<MemberId>().unwrap_err();
+        let err = "nexis:agent:".parse::<MemberId>().unwrap_err();
         assert_eq!(err, MemberIdError::InvalidIdentifier);
     }
 
@@ -240,7 +244,7 @@ mod tests {
 
     #[test]
     fn message_serializes_to_nip_002_shape() {
-        let sender = "nexis:ai:openai/gpt-4".parse::<MemberId>().unwrap();
+        let sender = "nexis:agent:openai/gpt-4".parse::<MemberId>().unwrap();
         let message = Message {
             id: "msg_abc123".to_string(),
             room_id: "room_xyz".to_string(),
@@ -256,7 +260,7 @@ mod tests {
 
         let encoded = serde_json::to_value(&message).unwrap();
         assert_eq!(encoded["roomId"], "room_xyz");
-        assert_eq!(encoded["sender"], "nexis:ai:openai/gpt-4");
+        assert_eq!(encoded["sender"], "nexis:agent:openai/gpt-4");
         assert_eq!(encoded["content"]["type"], "text");
         assert_eq!(encoded["content"]["text"], "hello");
         assert_eq!(encoded["replyTo"], "msg_def456");
