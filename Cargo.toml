@@ -74,7 +74,7 @@ base64 = "0.22"
 hex = "0.4"
 
 # Security
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.3"
 argon2 = "0.5"
 rand = "0.8"
 
