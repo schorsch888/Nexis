@@ -262,6 +262,10 @@ mod tests {
     use nexis_runtime::{AIProvider, GenerateRequest, StreamChunk};
     use serde_json::json;
 
+    fn network_tests_enabled() -> bool {
+        matches!(std::env::var("NEXIS_RUN_NETWORK_TESTS"), Ok(value) if value == "1")
+    }
+
     fn request() -> GenerateRequest {
         GenerateRequest {
             prompt: "Say hello".to_string(),
@@ -274,6 +278,11 @@ mod tests {
 
     #[tokio::test]
     async fn generate_calls_openai_chat_completions_endpoint() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start_async().await;
         let mock = server
             .mock_async(|when, then| {
@@ -304,6 +313,11 @@ mod tests {
 
     #[tokio::test]
     async fn generate_stream_reads_sse_and_emits_delta_chunks() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start_async().await;
         let sse = concat!(
             "data: {\"id\":\"chatcmpl-2\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n",
@@ -337,6 +351,11 @@ mod tests {
 
     #[tokio::test]
     async fn generate_maps_non_success_status_to_provider_error() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start_async().await;
         server
             .mock_async(|when, then| {

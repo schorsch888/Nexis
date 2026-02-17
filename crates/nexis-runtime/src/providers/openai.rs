@@ -265,6 +265,10 @@ mod tests {
     use crate::StreamChunk;
     use httpmock::prelude::*;
     use serde_json::json;
+
+    fn network_tests_enabled() -> bool {
+        matches!(std::env::var("NEXIS_RUN_NETWORK_TESTS"), Ok(value) if value == "1")
+    }
     
     #[test]
     fn provider_creation_explicit() {
@@ -377,6 +381,11 @@ mod tests {
     
     #[tokio::test]
     async fn generate_calls_openai_api() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start();
         
         let mock = server.mock(|when, then| {
@@ -430,6 +439,11 @@ mod tests {
     
     #[tokio::test]
     async fn generate_handles_api_error() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start();
         
         server.mock(|when, then| {
@@ -463,6 +477,11 @@ mod tests {
     
     #[tokio::test]
     async fn generate_stream_emits_chunks() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         use futures::StreamExt;
         
         let server = MockServer::start();

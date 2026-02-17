@@ -330,6 +330,10 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio_tungstenite::{accept_async, tungstenite::Message};
 
+    fn network_tests_enabled() -> bool {
+        matches!(std::env::var("NEXIS_RUN_NETWORK_TESTS"), Ok(value) if value == "1")
+    }
+
     #[test]
     fn cli_parses_create_room_command() {
         let cli = Cli::parse_from(["nexis-cli", "create-room", "general", "--topic", "team"]);
@@ -368,6 +372,11 @@ mod tests {
 
     #[tokio::test]
     async fn create_room_calls_control_plane_http_endpoint() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start_async().await;
         let room_mock = server
             .mock_async(|when, then| {
@@ -389,6 +398,11 @@ mod tests {
 
     #[tokio::test]
     async fn send_message_surfaces_http_status_error() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let server = MockServer::start_async().await;
         server
             .mock_async(|when, then| {
@@ -418,6 +432,11 @@ mod tests {
 
     #[tokio::test]
     async fn connect_command_receives_echo_text() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
