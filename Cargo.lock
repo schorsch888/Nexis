@@ -1799,6 +1799,7 @@ dependencies = [
  "nexis-mcp",
  "nexis-protocol",
  "prometheus",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

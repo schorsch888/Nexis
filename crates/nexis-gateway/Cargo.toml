@@ -58,6 +58,7 @@ nexis-mcp = { workspace = true }
 [dev-dependencies]
 tokio-test = "0.4"
 criterion = { workspace = true }
+reqwest = { workspace = true }
 
 [[bench]]
 name = "routing"
