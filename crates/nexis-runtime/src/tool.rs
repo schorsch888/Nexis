@@ -175,6 +175,7 @@ impl Tool for WebSearchTool {
 
 /// Code execution tool (sandboxed)
 pub struct CodeExecuteTool {
+    #[allow(dead_code)] // Will be used in sandboxed execution
     timeout_ms: u64,
 }
 

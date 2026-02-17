@@ -11,6 +11,7 @@ pub mod connection;
 pub mod router;
 pub mod server;
 
+#[allow(unused_imports)] // Re-exports for external use
 pub use auth::{AuthError, AuthenticatedUser, Claims, JwtConfig};
 pub use router::build_routes;
 

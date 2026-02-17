@@ -1,4 +1,9 @@
 //! Authentication module for Nexis Gateway
+//!
+//! This module provides JWT-based authentication for WebSocket connections.
+//! Currently implements token generation/verification; full integration pending.
+
+#![allow(dead_code)] // Stub code for future integration
 
 use axum::{
     extract::FromRequestParts,
@@ -6,7 +11,6 @@ use axum::{
 };
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// JWT Claims structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -102,7 +106,7 @@ where
 {
     type Rejection = StatusCode;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         // TODO: Extract JWT from Authorization header and validate
         // For now, return a placeholder
         Err(StatusCode::UNAUTHORIZED)

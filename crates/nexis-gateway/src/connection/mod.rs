@@ -1,4 +1,9 @@
 //! Connection management for Nexis Gateway
+//!
+//! Manages WebSocket connections, message broadcasting, and connection pooling.
+//! Integrates with the server module for real-time communication.
+
+#![allow(dead_code)] // Used by tests, pending server integration
 
 use std::collections::HashMap;
 use std::sync::Arc;
