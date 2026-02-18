@@ -82,7 +82,7 @@ rand = "0.8"
 proptest = "1.4"
 criterion = "0.5"
 mockall = "0.12"
-httpmock = "0.7"
+httpmock = "0.8"
 
 # Internal crates
 nexis-core = { path = "crates/nexis-core" }

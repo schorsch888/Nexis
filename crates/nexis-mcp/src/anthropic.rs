@@ -297,7 +297,7 @@ mod tests {
                     .path("/v1/messages")
                     .header("x-api-key", "test-key")
                     .header("anthropic-version", "2023-06-01")
-                    .body_contains("\"stream\":false");
+                    .body_includes("\"stream\":false");
                 then.status(200).json_body(json!({
                     "id": "msg_1",
                     "type": "message",
@@ -338,7 +338,7 @@ mod tests {
             .mock_async(|when, then| {
                 when.method(POST)
                     .path("/v1/messages")
-                    .body_contains("\"stream\":true");
+                    .body_includes("\"stream\":true");
                 then.status(200)
                     .header("content-type", "text/event-stream")
                     .body(sse);

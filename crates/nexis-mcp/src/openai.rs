@@ -288,7 +288,7 @@ mod tests {
             .mock_async(|when, then| {
                 when.method(POST)
                     .path("/v1/chat/completions")
-                    .body_contains("\"stream\":false");
+                    .body_includes("\"stream\":false");
                 then.status(200).json_body(json!({
                     "id": "chatcmpl-1",
                     "object": "chat.completion",
@@ -329,7 +329,7 @@ mod tests {
             .mock_async(|when, then| {
                 when.method(POST)
                     .path("/v1/chat/completions")
-                    .body_contains("\"stream\":true");
+                    .body_includes("\"stream\":true");
                 then.status(200)
                     .header("content-type", "text/event-stream")
                     .body(sse);

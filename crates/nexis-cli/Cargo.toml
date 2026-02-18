@@ -18,4 +18,4 @@ tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 
 [dev-dependencies]
-httpmock = "0.7"
+httpmock = { workspace = true }

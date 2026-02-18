@@ -26,4 +26,4 @@ nexis-runtime = { path = "../nexis-runtime" }
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = { workspace = true }
-httpmock = "0.7"
+httpmock = { workspace = true }
