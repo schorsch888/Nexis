@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod connection;
+pub mod db;
 pub mod metrics;
 pub mod router;
 pub mod server;

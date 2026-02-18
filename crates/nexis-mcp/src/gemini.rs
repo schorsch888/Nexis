@@ -121,11 +121,10 @@ impl AIProvider for GeminiProvider {
             .await
             .map_err(|err| ProviderError::Decode(err.to_string()))?;
 
-        let first_candidate = body
-            .candidates
-            .into_iter()
-            .next()
-            .ok_or_else(|| ProviderError::Decode("missing candidate in response".to_string()))?;
+        let first_candidate =
+            body.candidates.into_iter().next().ok_or_else(|| {
+                ProviderError::Decode("missing candidate in response".to_string())
+            })?;
 
         let content = first_candidate
             .content
@@ -144,7 +143,10 @@ impl AIProvider for GeminiProvider {
 
     async fn generate_stream(&self, req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
         let (model, payload) = self.payload(req);
-        let request = self.client.post(self.stream_endpoint(&model)).json(&payload);
+        let request = self
+            .client
+            .post(self.stream_endpoint(&model))
+            .json(&payload);
 
         let mut event_source = request
             .eventsource()
@@ -158,19 +160,22 @@ impl AIProvider for GeminiProvider {
                 match event {
                     Ok(Event::Open) => continue,
                     Ok(Event::Message(message)) => {
-                        let chunk = match serde_json::from_str::<GeminiGenerateResponse>(&message.data) {
-                            Ok(chunk) => chunk,
-                            Err(err) => {
-                                let _ = tx.send(Err(ProviderError::Decode(err.to_string()))).await;
-                                event_source.close();
-                                break;
-                            }
-                        };
+                        let chunk =
+                            match serde_json::from_str::<GeminiGenerateResponse>(&message.data) {
+                                Ok(chunk) => chunk,
+                                Err(err) => {
+                                    let _ =
+                                        tx.send(Err(ProviderError::Decode(err.to_string()))).await;
+                                    event_source.close();
+                                    break;
+                                }
+                            };
 
                         if let Some(candidate) = chunk.candidates.into_iter().next() {
                             for part in candidate.content.parts {
                                 if !part.text.is_empty() {
-                                    let _ = tx.send(Ok(StreamChunk::Delta { text: part.text })).await;
+                                    let _ =
+                                        tx.send(Ok(StreamChunk::Delta { text: part.text })).await;
                                 }
                             }
 
@@ -183,7 +188,9 @@ impl AIProvider for GeminiProvider {
                         }
                     }
                     Err(err) => {
-                        let _ = tx.send(Err(ProviderError::Transport(err.to_string()))).await;
+                        let _ = tx
+                            .send(Err(ProviderError::Transport(err.to_string())))
+                            .await;
                         event_source.close();
                         break;
                     }
@@ -341,8 +348,18 @@ mod tests {
         let done = stream.next().await.unwrap().unwrap();
 
         mock.assert_async().await;
-        assert_eq!(first, StreamChunk::Delta { text: "Hel".to_string() });
-        assert_eq!(second, StreamChunk::Delta { text: "lo".to_string() });
+        assert_eq!(
+            first,
+            StreamChunk::Delta {
+                text: "Hel".to_string()
+            }
+        );
+        assert_eq!(
+            second,
+            StreamChunk::Delta {
+                text: "lo".to_string()
+            }
+        );
         assert_eq!(done, StreamChunk::Done);
     }
 

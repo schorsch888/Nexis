@@ -11,6 +11,10 @@ authors.workspace = true
 name = "nexis-gateway"
 path = "src/main.rs"
 
+[features]
+default = []
+persistence-sqlx = ["dep:sqlx"]
+
 [dependencies]
 # Web
 axum = { workspace = true }
@@ -42,6 +46,9 @@ anyhow = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 bytes = { workspace = true }
+
+# Database
+sqlx = { workspace = true, optional = true }
 
 # Security
 jsonwebtoken = { workspace = true }

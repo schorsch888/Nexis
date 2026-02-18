@@ -55,7 +55,11 @@ pub enum Commands {
         url: String,
         #[arg(long, help = "Optional text frame to send immediately after connect")]
         message: Option<String>,
-        #[arg(long, default_value_t = 5_000, help = "Receive timeout in milliseconds")]
+        #[arg(
+            long,
+            default_value_t = 5_000,
+            help = "Receive timeout in milliseconds"
+        )]
         timeout_ms: u64,
     },
     #[command(about = "Test AI provider connection")]
@@ -270,14 +274,12 @@ pub async fn run(cli: Cli) -> Result<String, CliError> {
             provider,
             prompt,
             stream,
-        } => {
-            test_provider(&provider, &prompt, stream).await
-        }
+        } => test_provider(&provider, &prompt, stream).await,
     }
 }
 
 async fn test_provider(provider: &str, prompt: &str, stream: bool) -> Result<String, CliError> {
-    use nexis_runtime::{AIProvider, GenerateRequest, AnthropicProvider, OpenAIProvider};
+    use nexis_runtime::{AIProvider, AnthropicProvider, GenerateRequest, OpenAIProvider};
     use std::sync::Arc;
 
     println!("Testing {} provider...", provider);
@@ -285,7 +287,12 @@ async fn test_provider(provider: &str, prompt: &str, stream: bool) -> Result<Str
     let provider: Arc<dyn AIProvider> = match provider {
         "openai" => Arc::new(OpenAIProvider::from_env()),
         "anthropic" => Arc::new(AnthropicProvider::from_env()),
-        _ => return Err(CliError::InvalidArgument(format!("Unknown provider: {}", provider))),
+        _ => {
+            return Err(CliError::InvalidArgument(format!(
+                "Unknown provider: {}",
+                provider
+            )))
+        }
     };
 
     let req = GenerateRequest {
@@ -299,9 +306,11 @@ async fn test_provider(provider: &str, prompt: &str, stream: bool) -> Result<Str
     if stream {
         println!("Streaming response:\n");
         use futures::StreamExt;
-        let mut stream = provider.generate_stream(req).await
+        let mut stream = provider
+            .generate_stream(req)
+            .await
             .map_err(|e| CliError::HttpTransport(e.to_string()))?;
-        
+
         while let Some(chunk) = stream.next().await {
             match chunk.map_err(|e| CliError::HttpTransport(e.to_string()))? {
                 nexis_runtime::StreamChunk::Delta { text } => print!("{}", text),
@@ -311,7 +320,9 @@ async fn test_provider(provider: &str, prompt: &str, stream: bool) -> Result<Str
         Ok("Stream completed".to_string())
     } else {
         println!("Sending request...\n");
-        let resp = provider.generate(req).await
+        let resp = provider
+            .generate(req)
+            .await
             .map_err(|e| CliError::HttpTransport(e.to_string()))?;
         println!("Response: {}", resp.content);
         println!("Model: {:?}", resp.model);
@@ -381,7 +392,8 @@ mod tests {
         let room_mock = server
             .mock_async(|when, then| {
                 when.method(POST).path("/v1/rooms");
-                then.status(201).json_body(json!({"id": "room_general", "name": "general"}));
+                then.status(201)
+                    .json_body(json!({"id": "room_general", "name": "general"}));
             })
             .await;
 
@@ -448,13 +460,10 @@ mod tests {
             }
         });
 
-        let response = connect_websocket_once(
-            &format!("ws://{}/", addr),
-            Some("ping".to_string()),
-            2_000,
-        )
-        .await
-        .unwrap();
+        let response =
+            connect_websocket_once(&format!("ws://{}/", addr), Some("ping".to_string()), 2_000)
+                .await
+                .unwrap();
 
         assert_eq!(response.as_deref(), Some("ping"));
     }

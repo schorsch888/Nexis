@@ -12,7 +12,12 @@ pub struct MessageBuilder {
 }
 
 impl MessageBuilder {
-    pub fn new(id: String, room_id: String, sender: nexis_protocol::MemberId, content: MessageContent) -> Self {
+    pub fn new(
+        id: String,
+        room_id: String,
+        sender: nexis_protocol::MemberId,
+        content: MessageContent,
+    ) -> Self {
         Self {
             id,
             room_id,

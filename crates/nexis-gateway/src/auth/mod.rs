@@ -15,11 +15,11 @@ use serde::{Deserialize, Serialize};
 /// JWT Claims structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,        // Subject (Member ID)
-    pub exp: usize,         // Expiration time
-    pub iat: usize,         // Issued at
-    pub iss: String,        // Issuer
-    pub aud: String,        // Audience
+    pub sub: String,         // Subject (Member ID)
+    pub exp: usize,          // Expiration time
+    pub iat: usize,          // Issued at
+    pub iss: String,         // Issuer
+    pub aud: String,         // Audience
     pub member_type: String, // human, ai, agent, system
 }
 
@@ -70,8 +70,7 @@ impl JwtConfig {
             member_type: member_type.to_string(),
         };
 
-        encode(&Header::default(), &claims, &self.encoding_key)
-            .map_err(|_| AuthError::InvalidToken)
+        encode(&Header::default(), &claims, &self.encoding_key).map_err(|_| AuthError::InvalidToken)
     }
 
     /// Verify a JWT token
@@ -125,7 +124,9 @@ mod tests {
             "nexis".to_string(),
         );
 
-        let token = config.generate_token("nexis:human:alice@example.com", "human").unwrap();
+        let token = config
+            .generate_token("nexis:human:alice@example.com", "human")
+            .unwrap();
         let claims = config.verify_token(&token).unwrap();
 
         assert_eq!(claims.sub, "nexis:human:alice@example.com");

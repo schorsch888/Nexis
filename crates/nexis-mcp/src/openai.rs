@@ -149,13 +149,12 @@ impl AIProvider for OpenAIProvider {
                             break;
                         }
 
-                        let chunk = match serde_json::from_str::<OpenAIChatCompletionChunk>(&message.data)
-                        {
+                        let chunk = match serde_json::from_str::<OpenAIChatCompletionChunk>(
+                            &message.data,
+                        ) {
                             Ok(chunk) => chunk,
                             Err(err) => {
-                                let _ = tx
-                                    .send(Err(ProviderError::Decode(err.to_string())))
-                                    .await;
+                                let _ = tx.send(Err(ProviderError::Decode(err.to_string()))).await;
                                 event_source.close();
                                 break;
                             }
@@ -177,7 +176,9 @@ impl AIProvider for OpenAIProvider {
                         }
                     }
                     Err(err) => {
-                        let _ = tx.send(Err(ProviderError::Transport(err.to_string()))).await;
+                        let _ = tx
+                            .send(Err(ProviderError::Transport(err.to_string())))
+                            .await;
                         event_source.close();
                         break;
                     }
@@ -344,8 +345,18 @@ mod tests {
         let done = stream.next().await.unwrap().unwrap();
 
         mock.assert_async().await;
-        assert_eq!(first, StreamChunk::Delta { text: "Hel".to_string() });
-        assert_eq!(second, StreamChunk::Delta { text: "lo".to_string() });
+        assert_eq!(
+            first,
+            StreamChunk::Delta {
+                text: "Hel".to_string()
+            }
+        );
+        assert_eq!(
+            second,
+            StreamChunk::Delta {
+                text: "lo".to_string()
+            }
+        );
         assert_eq!(done, StreamChunk::Done);
     }
 

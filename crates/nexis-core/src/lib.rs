@@ -8,8 +8,6 @@ pub mod identity;
 pub mod message;
 pub mod permission;
 
-pub use nexis_protocol::{
-    Action, MemberId, MemberIdError, Message, MessageContent, Permissions,
-};
+pub use nexis_protocol::{Action, MemberId, MemberIdError, Message, MessageContent, Permissions};
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");

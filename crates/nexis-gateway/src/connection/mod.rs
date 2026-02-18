@@ -6,8 +6,8 @@
 #![allow(dead_code)] // Used by tests, pending server integration
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::sync::{broadcast, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
@@ -123,17 +123,19 @@ mod tests {
     #[tokio::test]
     async fn connection_manager_tracks_connections() {
         let manager = ConnectionManager::new();
-        
+
         assert_eq!(manager.connection_count().await, 0);
-        
-        let id1 = manager.add_connection("nexis:human:alice@example.com".to_string()).await;
+
+        let id1 = manager
+            .add_connection("nexis:human:alice@example.com".to_string())
+            .await;
         let id2 = manager.add_connection("nexis:ai:gpt-4".to_string()).await;
-        
+
         assert_eq!(manager.connection_count().await, 2);
-        
+
         manager.remove_connection(id1).await;
         assert_eq!(manager.connection_count().await, 1);
-        
+
         manager.remove_connection(id2).await;
         assert_eq!(manager.connection_count().await, 0);
     }

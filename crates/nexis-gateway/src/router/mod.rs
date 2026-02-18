@@ -1,13 +1,12 @@
 //! Message routing for Nexis Gateway
 
 use axum::{
-    extract::{Path, State},
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -148,7 +147,10 @@ async fn send_message(
     State(state): State<SharedState>,
     Json(payload): Json<SendMessageRequest>,
 ) -> impl IntoResponse {
-    if payload.room_id.trim().is_empty() || payload.sender.trim().is_empty() || payload.text.trim().is_empty() {
+    if payload.room_id.trim().is_empty()
+        || payload.sender.trim().is_empty()
+        || payload.text.trim().is_empty()
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "roomId, sender, and text are required" })),
@@ -184,10 +186,7 @@ async fn send_message(
     };
 
     let mut messages = state.room_messages.write().await;
-    messages
-        .entry(payload.room_id)
-        .or_default()
-        .push(message);
+    messages.entry(payload.room_id).or_default().push(message);
 
     (StatusCode::CREATED, Json(response)).into_response()
 }
@@ -224,7 +223,7 @@ async fn get_room(State(state): State<SharedState>, Path(id): Path<String>) -> i
 /// Handle WebSocket connection
 async fn handle_socket(socket: WebSocket) {
     use futures::{SinkExt, StreamExt};
-    
+
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(256);
 
@@ -235,7 +234,7 @@ async fn handle_socket(socket: WebSocket) {
             }
         }
     });
-    
+
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
@@ -271,7 +270,12 @@ mod tests {
     async fn health_check_returns_ok() {
         let app = build_routes();
         let response = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 

@@ -29,23 +29,27 @@ impl AnthropicProvider {
     pub fn from_env() -> Self {
         let api_key = env::var("ANTHROPIC_API_KEY")
             .expect("ANTHROPIC_API_KEY environment variable must be set");
-        
-        let base_url = env::var("ANTHROPIC_API_BASE")
-            .unwrap_or_else(|_| ANTHROPIC_API_BASE.to_string());
-        
-        let default_model = env::var("ANTHROPIC_DEFAULT_MODEL")
-            .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
-        
+
+        let base_url =
+            env::var("ANTHROPIC_API_BASE").unwrap_or_else(|_| ANTHROPIC_API_BASE.to_string());
+
+        let default_model =
+            env::var("ANTHROPIC_DEFAULT_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+
         Self::new(api_key, base_url, default_model)
     }
-    
+
     /// Create new Anthropic provider with explicit configuration
-    pub fn new(api_key: impl Into<String>, base_url: impl Into<String>, default_model: impl Into<String>) -> Self {
+    pub fn new(
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+        default_model: impl Into<String>,
+    ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
             .expect("Failed to create HTTP client");
-        
+
         Self {
             client,
             api_key: api_key.into(),
@@ -53,13 +57,15 @@ impl AnthropicProvider {
             default_model: default_model.into(),
         }
     }
-    
+
     fn endpoint(&self, path: &str) -> String {
         format!("{}{}", self.base_url.trim_end_matches('/'), path)
     }
-    
+
     fn get_model(&self, req: &GenerateRequest) -> String {
-        req.model.clone().unwrap_or_else(|| self.default_model.clone())
+        req.model
+            .clone()
+            .unwrap_or_else(|| self.default_model.clone())
     }
 }
 
@@ -125,10 +131,7 @@ struct Usage {
 #[allow(dead_code)]
 enum StreamEvent {
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta {
-        index: u32,
-        delta: DeltaContent,
-    },
+    ContentBlockDelta { index: u32, delta: DeltaContent },
     #[serde(rename = "message_stop")]
     MessageStop,
 }
@@ -148,21 +151,20 @@ impl AIProvider for AnthropicProvider {
     fn name(&self) -> &'static str {
         "anthropic"
     }
-    
+
     async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         let anthropic_req = MessagesRequest {
             model: self.get_model(&req),
-            messages: vec![
-                AnthropicMessage {
-                    role: "user".to_string(),
-                    content: req.prompt,
-                }
-            ],
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: req.prompt,
+            }],
             max_tokens: req.max_tokens.unwrap_or(1024),
             stream: None,
         };
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(self.endpoint("/messages"))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
@@ -171,21 +173,24 @@ impl AIProvider for AnthropicProvider {
             .send()
             .await
             .map_err(|e| ProviderError::Transport(e.to_string()))?;
-        
+
         let status = response.status();
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_else(|_| "<unable to read body>".to_string());
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unable to read body>".to_string());
             return Err(ProviderError::HttpStatus {
                 status: status.as_u16(),
                 body,
             });
         }
-        
+
         let anthropic_resp: MessagesResponse = response
             .json()
             .await
             .map_err(|e| ProviderError::Decode(e.to_string()))?;
-        
+
         // Extract text from content blocks
         let content = anthropic_resp
             .content
@@ -199,15 +204,18 @@ impl AIProvider for AnthropicProvider {
             })
             .collect::<Vec<_>>()
             .join("");
-        
+
         Ok(GenerateResponse {
             content,
             model: Some(anthropic_resp.model),
             finish_reason: anthropic_resp.stop_reason,
         })
     }
-    
-    async fn generate_stream(&self, _req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
+
+    async fn generate_stream(
+        &self,
+        _req: GenerateRequest,
+    ) -> Result<ProviderStream, ProviderError> {
         // TODO: Implement streaming for Anthropic
         // Anthropic uses different SSE format than OpenAI
         unimplemented!("Anthropic streaming not yet implemented")
@@ -223,18 +231,15 @@ mod tests {
     fn network_tests_enabled() -> bool {
         matches!(std::env::var("NEXIS_RUN_NETWORK_TESTS"), Ok(value) if value == "1")
     }
-    
+
     #[test]
     fn provider_creation_explicit() {
-        let provider = AnthropicProvider::new(
-            "test-key",
-            "https://api.anthropic.com/v1",
-            "claude-3-opus"
-        );
+        let provider =
+            AnthropicProvider::new("test-key", "https://api.anthropic.com/v1", "claude-3-opus");
         assert_eq!(provider.name(), "anthropic");
         assert_eq!(provider.default_model, "claude-3-opus");
     }
-    
+
     #[test]
     fn provider_creation_from_env() {
         if env::var("ANTHROPIC_API_KEY").is_ok() {
@@ -242,7 +247,7 @@ mod tests {
             assert_eq!(provider.name(), "anthropic");
         }
     }
-    
+
     #[tokio::test]
     async fn generate_calls_anthropic_api() {
         if !network_tests_enabled() {
@@ -251,32 +256,32 @@ mod tests {
         }
 
         let server = MockServer::start();
-        
+
         let mock = server.mock(|when, then| {
             when.method(POST)
                 .path("/messages")
                 .header("x-api-key", "test-key")
                 .header("anthropic-version", API_VERSION);
-            then.status(200)
-                .json_body(json!({
-                    "id": "msg_test",
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{
-                        "type": "text",
-                        "text": "Hello! I'm Claude."
-                    }],
-                    "model": "claude-3-5-sonnet-20241022",
-                    "stop_reason": "end_turn",
-                    "usage": {
-                        "input_tokens": 10,
-                        "output_tokens": 20
-                    }
-                }));
+            then.status(200).json_body(json!({
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "text",
+                    "text": "Hello! I'm Claude."
+                }],
+                "model": "claude-3-5-sonnet-20241022",
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 20
+                }
+            }));
         });
-        
-        let provider = AnthropicProvider::new("test-key", server.base_url(), "claude-3-5-sonnet-20241022");
-        
+
+        let provider =
+            AnthropicProvider::new("test-key", server.base_url(), "claude-3-5-sonnet-20241022");
+
         let req = GenerateRequest {
             prompt: "Hello".to_string(),
             model: None,
@@ -284,14 +289,14 @@ mod tests {
             temperature: None,
             metadata: None,
         };
-        
+
         let resp = provider.generate(req).await.unwrap();
-        
+
         mock.assert();
         assert_eq!(resp.content, "Hello! I'm Claude.");
         assert_eq!(resp.model, Some("claude-3-5-sonnet-20241022".to_string()));
     }
-    
+
     #[tokio::test]
     async fn generate_handles_api_error() {
         if !network_tests_enabled() {
@@ -300,20 +305,20 @@ mod tests {
         }
 
         let server = MockServer::start();
-        
+
         server.mock(|when, then| {
             when.method(POST).path("/messages");
-            then.status(401)
-                .json_body(json!({
-                    "error": {
-                        "type": "authentication_error",
-                        "message": "Invalid API Key"
-                    }
-                }));
+            then.status(401).json_body(json!({
+                "error": {
+                    "type": "authentication_error",
+                    "message": "Invalid API Key"
+                }
+            }));
         });
-        
-        let provider = AnthropicProvider::new("bad-key", server.base_url(), "claude-3-5-sonnet-20241022");
-        
+
+        let provider =
+            AnthropicProvider::new("bad-key", server.base_url(), "claude-3-5-sonnet-20241022");
+
         let req = GenerateRequest {
             prompt: "Hello".to_string(),
             model: None,
@@ -321,9 +326,9 @@ mod tests {
             temperature: None,
             metadata: None,
         };
-        
+
         let err = provider.generate(req).await.unwrap_err();
-        
+
         match err {
             ProviderError::HttpStatus { status, .. } => assert_eq!(status, 401),
             _ => panic!("Expected HttpStatus error"),

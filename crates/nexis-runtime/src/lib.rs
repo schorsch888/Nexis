@@ -185,7 +185,11 @@ impl HttpJsonProvider {
         })
     }
 
-    async fn try_post_json<TReq, TRes>(&self, path: &str, payload: &TReq) -> Result<TRes, ProviderError>
+    async fn try_post_json<TReq, TRes>(
+        &self,
+        path: &str,
+        payload: &TReq,
+    ) -> Result<TRes, ProviderError>
     where
         TReq: Serialize + Sync,
         TRes: DeserializeOwned,
@@ -535,22 +539,23 @@ mod tests {
 
         use httpmock::prelude::HttpMockRequest;
         use std::sync::atomic::{AtomicU32, Ordering};
-        
+
         // Use a static counter since httpmock's matches() only accepts fn pointers
         static CALL_COUNT: AtomicU32 = AtomicU32::new(0);
         CALL_COUNT.store(0, Ordering::SeqCst); // Reset for each test
-        
+
         fn first_call_only(_req: &HttpMockRequest) -> bool {
             let count = CALL_COUNT.fetch_add(1, Ordering::SeqCst);
             count == 0 // Only match the first request
         }
-        
+
         let server = MockServer::start_async().await;
-        
+
         // First mock matches only the first request (returns 500)
         server
             .mock_async(|when, then| {
-                when.method(POST).path("/v1/generate")
+                when.method(POST)
+                    .path("/v1/generate")
                     .matches(first_call_only);
                 then.status(500).body("upstream timeout");
             })

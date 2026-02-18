@@ -89,16 +89,31 @@ mod tests {
 
     #[test]
     fn parses_provider_kind_aliases() {
-        assert_eq!(ProviderKind::from_str("openai").unwrap(), ProviderKind::OpenAI);
-        assert_eq!(ProviderKind::from_str("anthropic").unwrap(), ProviderKind::Anthropic);
-        assert_eq!(ProviderKind::from_str("claude").unwrap(), ProviderKind::Anthropic);
-        assert_eq!(ProviderKind::from_str("gemini").unwrap(), ProviderKind::Gemini);
+        assert_eq!(
+            ProviderKind::from_str("openai").unwrap(),
+            ProviderKind::OpenAI
+        );
+        assert_eq!(
+            ProviderKind::from_str("anthropic").unwrap(),
+            ProviderKind::Anthropic
+        );
+        assert_eq!(
+            ProviderKind::from_str("claude").unwrap(),
+            ProviderKind::Anthropic
+        );
+        assert_eq!(
+            ProviderKind::from_str("gemini").unwrap(),
+            ProviderKind::Gemini
+        );
     }
 
     #[test]
     fn create_provider_returns_expected_runtime_name() {
         assert_eq!(create_provider(ProviderKind::OpenAI, "k1").name(), "openai");
-        assert_eq!(create_provider(ProviderKind::Anthropic, "k2").name(), "anthropic");
+        assert_eq!(
+            create_provider(ProviderKind::Anthropic, "k2").name(),
+            "anthropic"
+        );
         assert_eq!(create_provider(ProviderKind::Gemini, "k3").name(), "gemini");
     }
 

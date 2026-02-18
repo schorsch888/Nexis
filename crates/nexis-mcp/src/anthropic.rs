@@ -161,10 +161,13 @@ impl AIProvider for AnthropicProvider {
                         if message.event == "error" {
                             match serde_json::from_str::<AnthropicErrorEnvelope>(&message.data) {
                                 Ok(err) => {
-                                    let _ = tx.send(Err(ProviderError::Message(err.error.message))).await;
+                                    let _ = tx
+                                        .send(Err(ProviderError::Message(err.error.message)))
+                                        .await;
                                 }
                                 Err(err) => {
-                                    let _ = tx.send(Err(ProviderError::Decode(err.to_string()))).await;
+                                    let _ =
+                                        tx.send(Err(ProviderError::Decode(err.to_string()))).await;
                                 }
                             }
                             event_source.close();
@@ -172,14 +175,17 @@ impl AIProvider for AnthropicProvider {
                         }
 
                         if message.event == "content_block_delta" {
-                            let delta = match serde_json::from_str::<AnthropicStreamDelta>(&message.data) {
-                                Ok(value) => value,
-                                Err(err) => {
-                                    let _ = tx.send(Err(ProviderError::Decode(err.to_string()))).await;
-                                    event_source.close();
-                                    break;
-                                }
-                            };
+                            let delta =
+                                match serde_json::from_str::<AnthropicStreamDelta>(&message.data) {
+                                    Ok(value) => value,
+                                    Err(err) => {
+                                        let _ = tx
+                                            .send(Err(ProviderError::Decode(err.to_string())))
+                                            .await;
+                                        event_source.close();
+                                        break;
+                                    }
+                                };
 
                             if let Some(text) = delta.delta.text {
                                 if !text.is_empty() {
@@ -189,7 +195,9 @@ impl AIProvider for AnthropicProvider {
                         }
                     }
                     Err(err) => {
-                        let _ = tx.send(Err(ProviderError::Transport(err.to_string()))).await;
+                        let _ = tx
+                            .send(Err(ProviderError::Transport(err.to_string())))
+                            .await;
                         event_source.close();
                         break;
                     }
@@ -353,8 +361,18 @@ mod tests {
         let done = stream.next().await.unwrap().unwrap();
 
         mock.assert_async().await;
-        assert_eq!(first, StreamChunk::Delta { text: "Hel".to_string() });
-        assert_eq!(second, StreamChunk::Delta { text: "lo".to_string() });
+        assert_eq!(
+            first,
+            StreamChunk::Delta {
+                text: "Hel".to_string()
+            }
+        );
+        assert_eq!(
+            second,
+            StreamChunk::Delta {
+                text: "lo".to_string()
+            }
+        );
         assert_eq!(done, StreamChunk::Done);
     }
 

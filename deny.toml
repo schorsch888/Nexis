@@ -55,3 +55,9 @@ unmaintained = "warn"
 
 # Lint level for crates that have been yanked from their source registry
 yanked = "warn"
+
+# Ignore advisories that don't affect our usage
+ignore = [
+    # rsa timing attack - only affects sqlx-mysql, we use postgres only
+    "RUSTSEC-2023-0071",
+]

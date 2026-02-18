@@ -85,16 +85,16 @@ impl std::str::FromStr for MemberId {
         }
         let member_type = parts[0];
         let identifier = parts[1..].join(":");
-        
+
         match member_type {
             "human" | "agent" | "bot" => {}
             _ => return Err(MemberIdError::InvalidType(member_type.to_string())),
         }
-        
+
         if identifier.is_empty() {
             return Err(MemberIdError::InvalidIdentifier);
         }
-        
+
         Ok(Self(s.to_string()))
     }
 }
@@ -123,7 +123,10 @@ pub struct Permissions {
 
 impl Permissions {
     pub fn new(allowed_rooms: Vec<String>, actions: Vec<Action>) -> Self {
-        Self { allowed_rooms, actions }
+        Self {
+            allowed_rooms,
+            actions,
+        }
     }
 
     pub fn can(&self, action: Action) -> bool {
@@ -142,9 +145,17 @@ impl Permissions {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum MessageContent {
-    Text { text: String },
-    Code { code: String, language: Option<String> },
-    Tool { tool_name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    Code {
+        code: String,
+        language: Option<String>,
+    },
+    Tool {
+        tool_name: String,
+        input: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
