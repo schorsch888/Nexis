@@ -4,12 +4,15 @@
 //! with support for streaming responses.
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 
-use crate::{AIProvider, GenerateRequest, GenerateResponse, ProviderError, ProviderStream};
+use crate::{
+    AIProvider, GenerateRequest, GenerateResponse, ProviderError, ProviderStream, StreamChunk,
+};
 
 const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com/v1";
 const DEFAULT_MODEL: &str = "claude-3-5-sonnet-20241022";
@@ -125,15 +128,12 @@ struct Usage {
     output_tokens: u32,
 }
 
-/// Anthropic Streaming Event
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-#[allow(dead_code)]
-enum StreamEvent {
-    #[serde(rename = "content_block_delta")]
-    ContentBlockDelta { index: u32, delta: DeltaContent },
-    #[serde(rename = "message_stop")]
-    MessageStop,
+struct StreamEventEnvelope {
+    #[serde(rename = "type")]
+    event_type: String,
+    #[serde(default)]
+    delta: Option<DeltaContent>,
 }
 
 /// Anthropic Delta Content
@@ -141,9 +141,31 @@ enum StreamEvent {
 #[allow(dead_code)]
 struct DeltaContent {
     #[serde(rename = "type")]
-    #[allow(dead_code)]
     delta_type: String,
-    text: String,
+    #[serde(default)]
+    text: Option<String>,
+}
+
+fn parse_stream_chunk(data: &str) -> Result<Option<StreamChunk>, ProviderError> {
+    let event: StreamEventEnvelope =
+        serde_json::from_str(data).map_err(|e| ProviderError::Decode(e.to_string()))?;
+
+    match event.event_type.as_str() {
+        "content_block_delta" => {
+            if let Some(delta) = event.delta {
+                if delta.delta_type == "text_delta" {
+                    if let Some(text) = delta.text {
+                        if !text.is_empty() {
+                            return Ok(Some(StreamChunk::Delta { text }));
+                        }
+                    }
+                }
+            }
+            Ok(None)
+        }
+        "message_stop" => Ok(Some(StreamChunk::Done)),
+        _ => Ok(None),
+    }
 }
 
 #[async_trait]
@@ -212,19 +234,54 @@ impl AIProvider for AnthropicProvider {
         })
     }
 
-    async fn generate_stream(
-        &self,
-        _req: GenerateRequest,
-    ) -> Result<ProviderStream, ProviderError> {
-        // TODO: Implement streaming for Anthropic
-        // Anthropic uses different SSE format than OpenAI
-        unimplemented!("Anthropic streaming not yet implemented")
+    async fn generate_stream(&self, req: GenerateRequest) -> Result<ProviderStream, ProviderError> {
+        use reqwest_eventsource::{Event, EventSource};
+
+        let anthropic_req = MessagesRequest {
+            model: self.get_model(&req),
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: req.prompt,
+            }],
+            max_tokens: req.max_tokens.unwrap_or(1024),
+            stream: Some(true),
+        };
+
+        let client = self.client.clone();
+        let endpoint = self.endpoint("/messages");
+        let api_key = self.api_key.clone();
+
+        let event_source = EventSource::new(
+            client
+                .post(&endpoint)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", API_VERSION)
+                .header("content-type", "application/json")
+                .json(&anthropic_req),
+        )
+        .map_err(|e| ProviderError::Transport(e.to_string()))?;
+
+        let stream = event_source.filter_map(|event| async move {
+            match event {
+                Ok(Event::Open) => None,
+                Ok(Event::Message(msg)) => match parse_stream_chunk(&msg.data) {
+                    Ok(Some(chunk)) => Some(Ok(chunk)),
+                    Ok(None) => None,
+                    Err(err) => Some(Err(err)),
+                },
+                Err(e) => Some(Err(ProviderError::Transport(e.to_string()))),
+            }
+        });
+
+        Ok(Box::pin(stream))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamChunk;
+    use futures::StreamExt;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -333,5 +390,91 @@ mod tests {
             ProviderError::HttpStatus { status, .. } => assert_eq!(status, 401),
             _ => panic!("Expected HttpStatus error"),
         }
+    }
+
+    #[tokio::test]
+    async fn generate_stream_emits_chunks() {
+        if !network_tests_enabled() {
+            eprintln!("skipping network test: set NEXIS_RUN_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/messages")
+                .header("x-api-key", "test-key")
+                .header("anthropic-version", API_VERSION);
+            then.status(200).header("content-type", "text/event-stream").body(
+                concat!(
+                    "data: {\"type\":\"message_start\"}\n\n",
+                    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+                    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"!\"}}\n\n",
+                    "data: {\"type\":\"message_stop\"}\n\n"
+                ),
+            );
+        });
+
+        let provider =
+            AnthropicProvider::new("test-key", server.base_url(), "claude-3-5-sonnet-20241022");
+
+        let req = GenerateRequest {
+            prompt: "Hi".to_string(),
+            model: None,
+            max_tokens: None,
+            temperature: None,
+            metadata: None,
+        };
+
+        let mut stream = provider.generate_stream(req).await.unwrap();
+
+        let mut chunks = vec![];
+        while let Some(chunk) = stream.next().await {
+            chunks.push(chunk.unwrap());
+        }
+
+        mock.assert();
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(
+            chunks[0],
+            StreamChunk::Delta {
+                text: "Hello".to_string()
+            }
+        );
+        assert_eq!(
+            chunks[1],
+            StreamChunk::Delta {
+                text: "!".to_string()
+            }
+        );
+        assert_eq!(chunks[2], StreamChunk::Done);
+    }
+
+    #[test]
+    fn parse_stream_chunk_text_delta() {
+        let chunk = parse_stream_chunk(
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            chunk,
+            Some(StreamChunk::Delta {
+                text: "Hello".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_stream_chunk_message_stop() {
+        let chunk = parse_stream_chunk(r#"{"type":"message_stop"}"#).unwrap();
+        assert_eq!(chunk, Some(StreamChunk::Done));
+    }
+
+    #[test]
+    fn parse_stream_chunk_ignores_non_text_events() {
+        let chunk = parse_stream_chunk(r#"{"type":"ping"}"#).unwrap();
+        assert_eq!(chunk, None);
     }
 }
