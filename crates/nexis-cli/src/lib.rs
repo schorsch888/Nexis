@@ -123,6 +123,22 @@ pub struct SendMessageResponse {
     pub id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct StoredMessage {
+    pub id: String,
+    pub sender: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoomInfoResponse {
+    pub id: String,
+    pub name: String,
+    pub topic: Option<String>,
+    #[serde(default)]
+    pub messages: Vec<StoredMessage>,
+}
+
 impl CliClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
@@ -183,6 +199,15 @@ impl CliClient {
         self.post_json("/v1/messages", &payload).await
     }
 
+    pub async fn get_room(&self, room_id: &str) -> Result<RoomInfoResponse, CliError> {
+        if room_id.trim().is_empty() {
+            return Err(CliError::InvalidArgument(
+                "room id cannot be empty".to_string(),
+            ));
+        }
+        self.get_json(&format!("/v1/rooms/{room_id}")).await
+    }
+
     async fn post_json<TReq, TRes>(&self, path: &str, payload: &TReq) -> Result<TRes, CliError>
     where
         TReq: Serialize + Sync,
@@ -197,6 +222,32 @@ impl CliClient {
             .map_err(|err| CliError::HttpTransport(err.to_string()))?;
 
         if response.status() != StatusCode::OK && response.status() != StatusCode::CREATED {
+            let status = response.status().as_u16();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unable to read body>".to_string());
+            return Err(CliError::HttpStatus { status, body });
+        }
+
+        response
+            .json::<TRes>()
+            .await
+            .map_err(|err| CliError::Decode(err.to_string()))
+    }
+
+    async fn get_json<TRes>(&self, path: &str) -> Result<TRes, CliError>
+    where
+        TRes: for<'de> Deserialize<'de>,
+    {
+        let response = self
+            .http
+            .get(self.endpoint(path))
+            .send()
+            .await
+            .map_err(|err| CliError::HttpTransport(err.to_string()))?;
+
+        if response.status() != StatusCode::OK {
             let status = response.status().as_u16();
             let body = response
                 .text()
@@ -378,6 +429,18 @@ mod tests {
                 assert_eq!(text, "hello");
             }
             other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_room_rejects_empty_id() {
+        let client = CliClient::new("http://127.0.0.1:8080");
+        let error = client.get_room("").await.unwrap_err();
+        match error {
+            CliError::InvalidArgument(message) => {
+                assert!(message.contains("room id cannot be empty"));
+            }
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 

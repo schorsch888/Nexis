@@ -16,6 +16,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
+rustyline = "14"
+colored = "2"
 
 [dev-dependencies]
 httpmock = { workspace = true }
