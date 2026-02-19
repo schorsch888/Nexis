@@ -18,6 +18,7 @@ use uuid::Uuid;
 struct AppState {
     rooms: Arc<RwLock<HashMap<String, Room>>>,
     room_messages: Arc<RwLock<HashMap<String, Vec<StoredMessage>>>>,
+    room_members: Arc<RwLock<HashMap<String, Vec<String>>>>,
     write_gate: Arc<Semaphore>,
 }
 
@@ -26,6 +27,7 @@ impl Default for AppState {
         Self {
             rooms: Arc::new(RwLock::new(HashMap::new())),
             room_messages: Arc::new(RwLock::new(HashMap::new())),
+            room_members: Arc::new(RwLock::new(HashMap::new())),
             write_gate: Arc::new(Semaphore::new(2_048)),
         }
     }
@@ -60,6 +62,8 @@ struct SendMessageRequest {
     room_id: String,
     sender: String,
     text: String,
+    #[serde(rename = "replyTo", default)]
+    reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,6 +76,8 @@ struct StoredMessage {
     id: String,
     sender: String,
     text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,6 +87,18 @@ struct RoomInfoResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     topic: Option<String>,
     messages: Vec<StoredMessage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct InviteMemberRequest {
+    #[serde(rename = "memberId")]
+    member_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InviteMemberResponse {
+    room_id: String,
+    member_id: String,
 }
 
 /// Build the main router for the gateway
@@ -93,6 +111,7 @@ pub fn build_routes() -> Router {
         .route("/v1/rooms", post(create_room))
         .route("/v1/messages", post(send_message))
         .route("/v1/rooms/:id", get(get_room))
+        .route("/v1/rooms/:id/invite", post(invite_member))
         .with_state(state)
 }
 
@@ -172,6 +191,7 @@ async fn send_message(
         id: format!("msg_{}", Uuid::new_v4().simple()),
         sender: payload.sender,
         text: payload.text,
+        reply_to: payload.reply_to,
     };
     let response = SendMessageResponse {
         id: message.id.clone(),
@@ -215,6 +235,52 @@ async fn get_room(State(state): State<SharedState>, Path(id): Path<String>) -> i
         name: room.name,
         topic: room.topic,
         messages,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+async fn invite_member(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(payload): Json<InviteMemberRequest>,
+) -> impl IntoResponse {
+    if payload.member_id.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "memberId is required" })),
+        )
+            .into_response();
+    }
+
+    let rooms = state.rooms.read().await;
+    if !rooms.contains_key(&id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "room not found" })),
+        )
+            .into_response();
+    }
+    drop(rooms);
+
+    let member_id = payload.member_id.clone();
+    let Ok(_permit) = state.write_gate.clone().acquire_owned().await else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "service unavailable" })),
+        )
+            .into_response();
+    };
+
+    let mut members = state.room_members.write().await;
+    let room_members = members.entry(id.clone()).or_default();
+    if !room_members.contains(&member_id) {
+        room_members.push(member_id.clone());
+    }
+
+    let response = InviteMemberResponse {
+        room_id: id,
+        member_id,
     };
 
     (StatusCode::OK, Json(response)).into_response()

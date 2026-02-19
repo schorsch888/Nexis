@@ -116,6 +116,8 @@ struct SendMessageRequest {
     room_id: String,
     sender: String,
     text: String,
+    #[serde(rename = "replyTo", skip_serializing_if = "Option::is_none")]
+    reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +130,7 @@ pub struct StoredMessage {
     pub id: String,
     pub sender: String,
     pub text: String,
+    pub reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,6 +140,20 @@ pub struct RoomInfoResponse {
     pub topic: Option<String>,
     #[serde(default)]
     pub messages: Vec<StoredMessage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InviteMemberRequest {
+    #[serde(rename = "memberId")]
+    member_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InviteMemberResponse {
+    #[serde(rename = "roomId")]
+    pub room_id: String,
+    #[serde(rename = "memberId")]
+    pub member_id: String,
 }
 
 impl CliClient {
@@ -175,6 +192,16 @@ impl CliClient {
         sender: String,
         text: String,
     ) -> Result<SendMessageResponse, CliError> {
+        self.send_message_with_reply(room_id, sender, text, None).await
+    }
+
+    pub async fn send_message_with_reply(
+        &self,
+        room_id: String,
+        sender: String,
+        text: String,
+        reply_to: Option<String>,
+    ) -> Result<SendMessageResponse, CliError> {
         if room_id.trim().is_empty() {
             return Err(CliError::InvalidArgument(
                 "room id cannot be empty".to_string(),
@@ -195,8 +222,24 @@ impl CliClient {
             room_id,
             sender,
             text,
+            reply_to,
         };
         self.post_json("/v1/messages", &payload).await
+    }
+
+    pub async fn reply_message(
+        &self,
+        room_id: String,
+        sender: String,
+        reply_to: String,
+        text: String,
+    ) -> Result<SendMessageResponse, CliError> {
+        if reply_to.trim().is_empty() {
+            return Err(CliError::InvalidArgument(
+                "reply_to message id cannot be empty".to_string(),
+            ));
+        }
+        self.send_message_with_reply(room_id, sender, text, Some(reply_to)).await
     }
 
     pub async fn get_room(&self, room_id: &str) -> Result<RoomInfoResponse, CliError> {
@@ -206,6 +249,27 @@ impl CliClient {
             ));
         }
         self.get_json(&format!("/v1/rooms/{room_id}")).await
+    }
+
+    pub async fn invite_member(
+        &self,
+        room_id: &str,
+        member_id: &str,
+    ) -> Result<InviteMemberResponse, CliError> {
+        if room_id.trim().is_empty() {
+            return Err(CliError::InvalidArgument(
+                "room id cannot be empty".to_string(),
+            ));
+        }
+        if member_id.trim().is_empty() {
+            return Err(CliError::InvalidArgument(
+                "member id cannot be empty".to_string(),
+            ));
+        }
+        let payload = InviteMemberRequest {
+            member_id: member_id.to_string(),
+        };
+        self.post_json(&format!("/v1/rooms/{room_id}/invite"), &payload).await
     }
 
     async fn post_json<TReq, TRes>(&self, path: &str, payload: &TReq) -> Result<TRes, CliError>

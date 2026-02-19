@@ -20,6 +20,8 @@ const REPL_COMMANDS: &[&str] = &[
     "create-room",
     "join-room",
     "send",
+    "reply",
+    "invite-member",
     "list-rooms",
     "list-members",
     "help",
@@ -35,6 +37,8 @@ enum ReplCommand {
     CreateRoom(String),
     JoinRoom(String),
     Send(String),
+    Reply(String, String),
+    InviteMember(String, String),
     ListRooms,
     ListMembers,
     Help,
@@ -127,6 +131,26 @@ fn parse_command(line: &str) -> ReplCommand {
         "join-room" => ReplCommand::Unknown("usage: join-room <room_id>".to_string()),
         "send" if !tail.is_empty() => ReplCommand::Send(tail.to_string()),
         "send" => ReplCommand::Unknown("usage: send <message>".to_string()),
+        "reply" => {
+            let mut parts = tail.splitn(2, char::is_whitespace);
+            let message_id = parts.next().unwrap_or_default();
+            let message = parts.next().map(str::trim).unwrap_or_default();
+            if message_id.is_empty() || message.is_empty() {
+                ReplCommand::Unknown("usage: reply <message_id> <message>".to_string())
+            } else {
+                ReplCommand::Reply(message_id.to_string(), message.to_string())
+            }
+        }
+        "invite-member" => {
+            let mut parts = tail.splitn(2, char::is_whitespace);
+            let room_id = parts.next().unwrap_or_default();
+            let member_id = parts.next().map(str::trim).unwrap_or_default();
+            if room_id.is_empty() || member_id.is_empty() {
+                ReplCommand::Unknown("usage: invite-member <room_id> <member_id>".to_string())
+            } else {
+                ReplCommand::InviteMember(room_id.to_string(), member_id.to_string())
+            }
+        }
         _ => ReplCommand::Unknown(format!("unknown command: {line}")),
     }
 }
@@ -139,6 +163,8 @@ fn help_text() -> String {
         "  create-room <name>     Create a room",
         "  join-room <room_id>    Join existing room",
         "  send <message>         Send message to current room",
+        "  reply <message_id> <message>  Reply to a message",
+        "  invite-member <room_id> <member_id>  Invite member to room",
         "  list-rooms             List known rooms",
         "  list-members           List members in current room",
         "  @ai <message>          Ask AI and stream response",
@@ -276,6 +302,26 @@ async fn run_repl_command(state: &mut ReplState, command: ReplCommand) -> Result
                 .send_message(room_id.to_string(), member_id.to_string(), message)
                 .await?;
             println!("{} {}", "message sent:".green(), sent.id.cyan());
+        }
+        ReplCommand::Reply(message_id, message) => {
+            let member_id = state.member_id.as_deref().ok_or_else(|| {
+                CliError::InvalidArgument("login required before `reply`".to_string())
+            })?;
+            let room_id = state.current_room.as_deref().ok_or_else(|| {
+                CliError::InvalidArgument("join-room required before `reply`".to_string())
+            })?;
+            let sent = state
+                .client
+                .reply_message(room_id.to_string(), member_id.to_string(), message_id.clone(), message)
+                .await?;
+            println!("{} {} (reply to {})", "message sent:".green(), sent.id.cyan(), message_id);
+        }
+        ReplCommand::InviteMember(room_id, member_id) => {
+            let _ = state.member_id.as_deref().ok_or_else(|| {
+                CliError::InvalidArgument("login required before `invite-member`".to_string())
+            })?;
+            let _result = state.client.invite_member(&room_id, &member_id).await?;
+            println!("{} {} to room {}", "invited".green(), member_id.cyan(), room_id.cyan());
         }
         ReplCommand::ListRooms => {
             if state.known_rooms.is_empty() {
@@ -447,6 +493,8 @@ mod tests {
             "create-room <name>",
             "join-room <room_id>",
             "send <message>",
+            "reply <message_id>",
+            "invite-member <room_id>",
             "list-rooms",
             "list-members",
             "@ai <message>",
