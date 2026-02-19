@@ -139,10 +139,10 @@ nexis/
 |--------|--------|-------|
 | nexis-protocol | ✅ ready | NIP-001/002 types with tests |
 | nexis-core | ✅ ready | Re-exports + domain extensions |
-| nexis-gateway | ✅ ready | WebSocket + JWT auth |
-| nexis-runtime | 🔄 stub | Provider trait ready |
-| nexis-mcp | 🔄 stub | Interface ready |
-| nexis-cli | 📝 planned | Basic structure |
+| nexis-gateway | ✅ ready | WebSocket + JWT auth + SQLx persistence |
+| nexis-runtime | 🔄 in progress | OpenAI complete, Anthropic streaming pending |
+| nexis-mcp | 🔄 in progress | OpenAI/Anthropic/Gemini adapters ready |
+| nexis-cli | 🔄 in progress | REPL with commands + AI interaction |
 | MCP providers | 📝 stub | Interface ready, real adapters pending |
 
 ---
