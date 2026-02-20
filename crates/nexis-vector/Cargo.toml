@@ -18,8 +18,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 
-# Vector store
-qdrant-client = { version = "1.13", optional = true }
+qdrant-client = { workspace = true, optional = true }
 
 [features]
 default = []
