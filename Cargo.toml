@@ -6,6 +6,8 @@ members = [
   "crates/nexis-gateway",
   "crates/nexis-runtime",
   "crates/nexis-cli",
+  "crates/nexis-vector",
+  "crates/nexis-context",
 ]
 resolver = "2"
 
@@ -79,6 +81,7 @@ argon2 = "0.5"
 rand = "0.8"
 
 # Testing
+tokio-test = "0.4"
 proptest = "1.4"
 criterion = "0.5"
 mockall = "0.12"
@@ -88,6 +91,8 @@ httpmock = "0.8"
 nexis-core = { path = "crates/nexis-core" }
 nexis-protocol = { path = "crates/nexis-protocol" }
 nexis-mcp = { path = "crates/nexis-mcp" }
+nexis-vector = { path = "crates/nexis-vector" }
+nexis-context = { path = "crates/nexis-context" }
 
 # Release profile
 [profile.release]
