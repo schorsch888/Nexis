@@ -29,9 +29,10 @@ tokio-test = "0.4"
 
 [features]
 default = []
-full = ["postgres", "redis"]
+full = ["postgres", "redis", "multi-tenant"]
 postgres = []
 redis = []
+multi-tenant = []
 
 [package.metadata.docs.rs]
 all-features = true
