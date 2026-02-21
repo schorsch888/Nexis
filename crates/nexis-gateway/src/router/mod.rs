@@ -146,12 +146,32 @@ struct SearchResultItem {
 #[derive(Debug, Clone, Serialize)]
 struct ErrorResponse {
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
+}
+
+impl ErrorResponse {
+    fn internal_error() -> Self {
+        Self {
+            error: "An internal error occurred. Please try again later.".to_string(),
+            code: Some("INTERNAL_ERROR"),
+        }
+    }
 }
 
 impl From<SearchError> for ErrorResponse {
     fn from(err: SearchError) -> Self {
-        Self {
-            error: err.to_string(),
+        tracing::error!("Search error: {}", err);
+        match err {
+            SearchError::InvalidQuery(_) => {
+                Self {
+                    error: "Invalid search query".to_string(),
+                    code: Some("INVALID_QUERY"),
+                }
+            }
+            SearchError::EmbeddingError(_) | SearchError::VectorError(_) => {
+                Self::internal_error()
+            }
         }
     }
 }
@@ -366,6 +386,7 @@ async fn search_messages(
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
                 error: "Search service not configured".to_string(),
+                code: Some("SEARCH_UNAVAILABLE"),
             }),
         )
             .into_response();
@@ -376,6 +397,7 @@ async fn search_messages(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 error: "Query cannot be empty".to_string(),
+                code: Some("INVALID_QUERY"),
             }),
         )
             .into_response();
