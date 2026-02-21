@@ -71,6 +71,17 @@ pub enum Commands {
         #[arg(short, long, help = "Use streaming")]
         stream: bool,
     },
+    #[command(about = "Semantic search for messages")]
+    Search {
+        #[arg(help = "Search query")]
+        query: String,
+        #[arg(long, default_value_t = 10, help = "Maximum number of results")]
+        limit: usize,
+        #[arg(long, help = "Filter by room ID")]
+        room: Option<String>,
+        #[arg(long, help = "Minimum similarity score (0.0-1.0)")]
+        min_score: Option<f32>,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -154,6 +165,31 @@ pub struct InviteMemberResponse {
     pub room_id: String,
     #[serde(rename = "memberId")]
     pub member_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SearchRequest {
+    query: String,
+    limit: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchResponse {
+    pub query: String,
+    pub results: Vec<SearchResultItem>,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchResultItem {
+    pub id: uuid::Uuid,
+    pub score: f32,
+    pub content: String,
+    pub room_id: Option<uuid::Uuid>,
 }
 
 impl CliClient {
@@ -270,6 +306,27 @@ impl CliClient {
             member_id: member_id.to_string(),
         };
         self.post_json(&format!("/v1/rooms/{room_id}/invite"), &payload).await
+    }
+
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        room_id: Option<uuid::Uuid>,
+        min_score: Option<f32>,
+    ) -> Result<SearchResponse, CliError> {
+        if query.trim().is_empty() {
+            return Err(CliError::InvalidArgument(
+                "query cannot be empty".to_string(),
+            ));
+        }
+        let payload = SearchRequest {
+            query: query.to_string(),
+            limit,
+            min_score,
+            room_id,
+        };
+        self.post_json("/v1/search", &payload).await
     }
 
     async fn post_json<TReq, TRes>(&self, path: &str, payload: &TReq) -> Result<TRes, CliError>
@@ -390,6 +447,35 @@ pub async fn run(cli: Cli) -> Result<String, CliError> {
             prompt,
             stream,
         } => test_provider(&provider, &prompt, stream).await,
+        Commands::Search {
+            query,
+            limit,
+            room,
+            min_score,
+        } => {
+            let client = CliClient::new(cli.server);
+            let room_id = room.and_then(|r| r.parse::<uuid::Uuid>().ok());
+            let response = client.search(&query, limit, room_id, min_score).await?;
+            let mut output = format!("Search results for: {}\n\n", response.query);
+            if response.results.is_empty() {
+                output.push_str("No results found.\n");
+            } else {
+                for (i, result) in response.results.iter().enumerate() {
+                    output.push_str(&format!(
+                        "{}. [score: {:.3}] {}\n",
+                        i + 1,
+                        result.score,
+                        result.content.chars().take(100).collect::<String>()
+                    ));
+                    if let Some(room_id) = result.room_id {
+                        output.push_str(&format!("   Room: {}\n", room_id));
+                    }
+                    output.push('\n');
+                }
+                output.push_str(&format!("Total: {} results\n", response.total));
+            }
+            Ok(output)
+        }
     }
 }
 

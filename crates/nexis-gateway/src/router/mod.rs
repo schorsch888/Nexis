@@ -1,4 +1,4 @@
-//! Message routing for Nexis Gateway
+//! Message routing for Nexus Gateway
 
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -14,12 +14,15 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use uuid::Uuid;
 
+use crate::search::{SearchError, SearchRequest, SearchService};
+
 #[derive(Clone)]
 struct AppState {
     rooms: Arc<RwLock<HashMap<String, Room>>>,
     room_messages: Arc<RwLock<HashMap<String, Vec<StoredMessage>>>>,
     room_members: Arc<RwLock<HashMap<String, Vec<String>>>>,
     write_gate: Arc<Semaphore>,
+    search_service: Option<Arc<dyn SearchService>>,
 }
 
 impl Default for AppState {
@@ -29,7 +32,15 @@ impl Default for AppState {
             room_messages: Arc::new(RwLock::new(HashMap::new())),
             room_members: Arc::new(RwLock::new(HashMap::new())),
             write_gate: Arc::new(Semaphore::new(2_048)),
+            search_service: None,
         }
+    }
+}
+
+impl AppState {
+    fn with_search_service(mut self, service: Arc<dyn SearchService>) -> Self {
+        self.search_service = Some(service);
+        self
     }
 }
 
@@ -101,6 +112,50 @@ struct InviteMemberResponse {
     member_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct SearchApiRequest {
+    query: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
+    #[serde(default)]
+    min_score: Option<f32>,
+    #[serde(default)]
+    room_id: Option<Uuid>,
+}
+
+fn default_limit() -> usize {
+    10
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SearchApiResponse {
+    query: String,
+    results: Vec<SearchResultItem>,
+    total: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SearchResultItem {
+    id: Uuid,
+    score: f32,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
+impl From<SearchError> for ErrorResponse {
+    fn from(err: SearchError) -> Self {
+        Self {
+            error: err.to_string(),
+        }
+    }
+}
+
 /// Build the main router for the gateway
 pub fn build_routes() -> Router {
     let state = AppState::default();
@@ -112,6 +167,22 @@ pub fn build_routes() -> Router {
         .route("/v1/messages", post(send_message))
         .route("/v1/rooms/:id", get(get_room))
         .route("/v1/rooms/:id/invite", post(invite_member))
+        .route("/v1/search", post(search_messages))
+        .with_state(state)
+}
+
+/// Build router with search service
+pub fn build_routes_with_search(search_service: Arc<dyn SearchService>) -> Router {
+    let state = AppState::default().with_search_service(search_service);
+
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/ws", get(websocket_handler))
+        .route("/v1/rooms", post(create_room))
+        .route("/v1/messages", post(send_message))
+        .route("/v1/rooms/:id", get(get_room))
+        .route("/v1/rooms/:id/invite", post(invite_member))
+        .route("/v1/search", post(search_messages))
         .with_state(state)
 }
 
@@ -284,6 +355,70 @@ async fn invite_member(
     };
 
     (StatusCode::OK, Json(response)).into_response()
+}
+
+async fn search_messages(
+    State(state): State<SharedState>,
+    Json(payload): Json<SearchApiRequest>,
+) -> impl IntoResponse {
+    let Some(search_service) = state.search_service.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Search service not configured".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    if payload.query.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Query cannot be empty".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut request = SearchRequest::new(&payload.query).with_limit(payload.limit);
+
+    if let Some(min_score) = payload.min_score {
+        request = request.with_min_score(min_score);
+    }
+
+    if let Some(room_id) = payload.room_id {
+        request = request.in_room(room_id);
+    }
+
+    match search_service.search(request).await {
+        Ok(response) => {
+            let items: Vec<SearchResultItem> = response
+                .results
+                .into_iter()
+                .filter_map(|r| {
+                    r.content.map(|content| SearchResultItem {
+                        id: r.id,
+                        score: r.score,
+                        content,
+                        room_id: r.room_id,
+                    })
+                })
+                .collect();
+            let total = items.len();
+            let api_response = SearchApiResponse {
+                query: response.query,
+                results: items,
+                total,
+            };
+            (StatusCode::OK, Json(api_response)).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::from(e)),
+        )
+            .into_response(),
+    }
 }
 
 /// Handle WebSocket connection

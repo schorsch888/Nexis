@@ -24,6 +24,7 @@ const REPL_COMMANDS: &[&str] = &[
     "invite-member",
     "list-rooms",
     "list-members",
+    "search",
     "help",
     "@ai",
     "exit",
@@ -41,6 +42,7 @@ enum ReplCommand {
     InviteMember(String, String),
     ListRooms,
     ListMembers,
+    Search(String),
     Help,
     Ai(String),
     Exit,
@@ -131,6 +133,8 @@ fn parse_command(line: &str) -> ReplCommand {
         "join-room" => ReplCommand::Unknown("usage: join-room <room_id>".to_string()),
         "send" if !tail.is_empty() => ReplCommand::Send(tail.to_string()),
         "send" => ReplCommand::Unknown("usage: send <message>".to_string()),
+        "search" if !tail.is_empty() => ReplCommand::Search(tail.to_string()),
+        "search" => ReplCommand::Unknown("usage: search <query>".to_string()),
         "reply" => {
             let mut parts = tail.splitn(2, char::is_whitespace);
             let message_id = parts.next().unwrap_or_default();
@@ -167,6 +171,7 @@ fn help_text() -> String {
         "  invite-member <room_id> <member_id>  Invite member to room",
         "  list-rooms             List known rooms",
         "  list-members           List members in current room",
+        "  search <query>         Semantic search for messages",
         "  @ai <message>          Ask AI and stream response",
         "  help                   Show this help",
         "  exit | quit            Exit REPL",
@@ -343,6 +348,27 @@ async fn run_repl_command(state: &mut ReplState, command: ReplCommand) -> Result
             })?;
             let room = state.client.get_room(room_id).await?;
             print_members(&room, state.member_id.as_deref());
+        }
+        ReplCommand::Search(query) => {
+            let room_id = state.current_room.as_ref().and_then(|r| r.parse::<uuid::Uuid>().ok());
+            let response = state.client.search(&query, 10, room_id, None).await?;
+            println!("{}", format!("Search results for: {}", response.query).bright_blue());
+            if response.results.is_empty() {
+                println!("{}", "No results found.".yellow());
+            } else {
+                for (i, result) in response.results.iter().enumerate() {
+                    println!(
+                        "{}. {} [score: {:.3}]",
+                        (i + 1).to_string().cyan(),
+                        result.content.chars().take(80).collect::<String>(),
+                        result.score
+                    );
+                    if let Some(room_id) = result.room_id {
+                        println!("   {}", format!("Room: {}", room_id).dimmed());
+                    }
+                }
+                println!("{}", format!("Total: {} results", response.total).green());
+            }
         }
         ReplCommand::Help => {
             println!("{}", help_text().bright_blue());

@@ -1,6 +1,6 @@
-//! Nexis Gateway - Control Plane Entry Point
+//! Nexus Gateway - Control Plane Entry Point
 //!
-//! This is the main entry point for the Nexis Control Plane gateway.
+//! This is the main entry point for the Nexus Control Plane gateway.
 
 use axum::Router;
 use std::net::SocketAddr;
@@ -8,10 +8,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod auth;
-mod connection;
-mod router;
-mod server;
+use nexis_gateway::router;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -24,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    tracing::info!("Starting Nexis Gateway v{}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("Starting Nexus Gateway v{}", env!("CARGO_PKG_VERSION"));
 
     // Build router
     let app = Router::new()
