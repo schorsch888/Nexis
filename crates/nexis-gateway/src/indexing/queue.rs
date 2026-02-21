@@ -1,6 +1,6 @@
 //! Background task queue for async indexing operations
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -79,13 +79,15 @@ pub struct QueueStats {
     pub completed: u64,
     /// Number of failed tasks
     pub failed: u64,
+    /// Number of retries
+    pub retries: u64,
 }
 
 /// Background task queue for indexing
 pub struct IndexingQueue {
     sender: mpsc::Sender<IndexTask>,
     stats: Arc<Mutex<QueueStats>>,
-    pending_tasks: Arc<Mutex<VecDeque<IndexTask>>>,
+    pending_tasks: Arc<Mutex<HashMap<Uuid, IndexTask>>>,
 }
 
 impl IndexingQueue {
@@ -93,37 +95,56 @@ impl IndexingQueue {
     pub fn new(service: Arc<dyn IndexingService>, buffer_size: usize) -> Self {
         let (sender, mut receiver) = mpsc::channel::<IndexTask>(buffer_size);
         let stats = Arc::new(Mutex::new(QueueStats::default()));
-        let pending_tasks = Arc::new(Mutex::new(VecDeque::new()));
+        let pending_tasks = Arc::new(Mutex::new(HashMap::new()));
 
         let stats_clone = stats.clone();
         let pending_clone = pending_tasks.clone();
+        let sender_clone = sender.clone();
 
         tokio::spawn(async move {
             while let Some(mut task) = receiver.recv().await {
-                debug!(task_id = %task.id, "Processing indexing task");
+                debug!(task_id = %task.id, attempt = task.attempts, "Processing indexing task");
 
                 match service.index_message(&task.message, task.room_id, task.metadata.clone()).await {
                     Ok(doc_id) => {
                         info!(task_id = %task.id, doc_id = %doc_id, "Indexing task completed");
                         let mut stats = stats_clone.lock().await;
                         stats.completed += 1;
+                        let mut pending = pending_clone.lock().await;
+                        pending.remove(&task.id);
                     }
                     Err(IndexingError::EmbeddingError(e)) => {
                         warn!(task_id = %task.id, error = %e, "Embedding error, will retry");
                         task.increment_attempt();
                         if task.can_retry() {
-                            let mut pending = pending_clone.lock().await;
-                            pending.push_back(task);
+                            let mut stats = stats_clone.lock().await;
+                            stats.retries += 1;
+                            drop(stats);
+                            
+                            if let Err(e) = sender_clone.send(task.clone()).await {
+                                error!(task_id = %task.id, error = %e, "Failed to re-queue task for retry");
+                                let mut pending = pending_clone.lock().await;
+                                pending.remove(&task.id);
+                                let mut stats = stats_clone.lock().await;
+                                stats.failed += 1;
+                            } else {
+                                let mut pending = pending_clone.lock().await;
+                                pending.insert(task.id, task);
+                            }
                         } else {
                             error!(task_id = %task.id, "Task failed after max retries");
                             let mut stats = stats_clone.lock().await;
                             stats.failed += 1;
+                            let mut pending = pending_clone.lock().await;
+                            pending.remove(&task.id);
                         }
                     }
                     Err(e) => {
                         error!(task_id = %task.id, error = %e, "Indexing task failed");
                         let mut stats = stats_clone.lock().await;
                         stats.failed += 1;
+                        let mut pending = pending_clone.lock().await;
+                        pending.remove(&task.id);
                     }
                 }
             }
@@ -139,13 +160,14 @@ impl IndexingQueue {
 
     /// Enqueue a task for background processing
     pub async fn enqueue(&self, task: IndexTask) -> Result<(), IndexingError> {
+        let task_id = task.id;
         self.sender
             .send(task.clone())
             .await
             .map_err(|_| IndexingError::InvalidMessage("Queue channel closed".to_string()))?;
 
         let mut pending = self.pending_tasks.lock().await;
-        pending.push_back(task);
+        pending.insert(task_id, task);
 
         Ok(())
     }
@@ -273,5 +295,22 @@ mod tests {
         assert_eq!(stats.pending, 0);
         assert_eq!(stats.completed, 0);
         assert_eq!(stats.failed, 0);
+        assert_eq!(stats.retries, 0);
+    }
+
+    #[test]
+    fn retry_respects_max_retries() {
+        let mut task = IndexTask::new("Test".to_string(), Uuid::new_v4(), serde_json::json!({}));
+        task.max_retries = 3;
+
+        assert!(task.can_retry());
+        task.increment_attempt();
+        assert_eq!(task.attempts, 1);
+        assert!(task.can_retry());
+        
+        task.increment_attempt();
+        task.increment_attempt();
+        assert_eq!(task.attempts, 3);
+        assert!(!task.can_retry());
     }
 }
