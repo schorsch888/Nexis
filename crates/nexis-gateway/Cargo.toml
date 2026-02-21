@@ -61,6 +61,8 @@ lazy_static = "1.4"
 nexis-core = { workspace = true }
 nexis-protocol = { workspace = true }
 nexis-mcp = { workspace = true }
+nexis-runtime = { workspace = true }
+nexis-vector = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

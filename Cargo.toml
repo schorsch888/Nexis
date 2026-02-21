@@ -91,6 +91,7 @@ httpmock = "0.8"
 nexis-core = { path = "crates/nexis-core" }
 nexis-protocol = { path = "crates/nexis-protocol" }
 nexis-mcp = { path = "crates/nexis-mcp" }
+nexis-runtime = { path = "crates/nexis-runtime" }
 nexis-vector = { path = "crates/nexis-vector" }
 nexis-context = { path = "crates/nexis-context" }
 

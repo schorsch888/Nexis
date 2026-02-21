@@ -1981,6 +1981,8 @@ dependencies = [
  "nexis-core",
  "nexis-mcp",
  "nexis-protocol",
+ "nexis-runtime",
+ "nexis-vector",
  "prometheus",
  "reqwest",
  "serde",
