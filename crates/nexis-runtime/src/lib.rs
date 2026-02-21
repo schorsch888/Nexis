@@ -5,11 +5,15 @@
 //! - Tool calling system for AI agents
 //! - Control plane client for task management
 
+pub mod embedding;
 pub mod providers;
 pub mod registry;
 pub mod tool;
 
-// Re-export provider types
+pub use embedding::{
+    BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingProvider, EmbeddingRequest,
+    EmbeddingResponse, EmbeddingUsage, MockEmbeddingProvider, OpenAIEmbeddingProvider,
+};
 pub use providers::{AnthropicProvider, OpenAIProvider};
 
 // Re-export registry types
