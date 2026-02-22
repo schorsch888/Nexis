@@ -75,6 +75,9 @@ pub struct Room {
     pub topic: Option<String>,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
+    /// Tenant ID (multi-tenant only).
+    #[cfg(feature = "multi-tenant")]
+    pub tenant_id: Option<String>,
 }
 
 /// Domain model for a message.
@@ -90,6 +93,9 @@ pub struct Message {
     pub content: String,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
+    /// Tenant ID (multi-tenant only).
+    #[cfg(feature = "multi-tenant")]
+    pub tenant_id: Option<String>,
 }
 
 /// Domain model for a member.
@@ -103,6 +109,9 @@ pub struct Member {
     pub email: String,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
+    /// Tenant ID (multi-tenant only).
+    #[cfg(feature = "multi-tenant")]
+    pub tenant_id: Option<String>,
 }
 
 /// Create a PostgreSQL connection pool for gateway persistence.
@@ -144,6 +153,21 @@ pub trait RoomRepository: Send + Sync {
     async fn get(&self, id: &str) -> Result<Option<Room>, RepositoryError>;
     /// List all rooms.
     async fn list(&self) -> Result<Vec<Room>, RepositoryError>;
+
+    /// Create room with tenant context (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        topic: Option<&str>,
+    ) -> Result<Room, RepositoryError>;
+    /// Get room by ID within tenant scope (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(&self, tenant_id: &str, id: &str) -> Result<Option<Room>, RepositoryError>;
+    /// List rooms within tenant scope (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn list_tenant(&self, tenant_id: &str) -> Result<Vec<Room>, RepositoryError>;
 }
 
 /// Persistence operations for messages.
@@ -160,6 +184,30 @@ pub trait MessageRepository: Send + Sync {
     async fn get(&self, id: &str) -> Result<Option<Message>, RepositoryError>;
     /// List all messages in a room.
     async fn list_by_room(&self, room_id: &str) -> Result<Vec<Message>, RepositoryError>;
+
+    /// Create message with tenant context (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        room_id: &str,
+        sender_id: &str,
+        content: &str,
+    ) -> Result<Message, RepositoryError>;
+    /// Get message by ID within tenant scope (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<Message>, RepositoryError>;
+    /// List messages in room within tenant scope (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn list_by_room_tenant(
+        &self,
+        tenant_id: &str,
+        room_id: &str,
+    ) -> Result<Vec<Message>, RepositoryError>;
 }
 
 /// Persistence operations for members.
@@ -169,6 +217,22 @@ pub trait MemberRepository: Send + Sync {
     async fn create(&self, member_type: &str, email: &str) -> Result<Member, RepositoryError>;
     /// Load one member by ID.
     async fn get(&self, id: &str) -> Result<Option<Member>, RepositoryError>;
+
+    /// Create member with tenant context (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        member_type: &str,
+        email: &str,
+    ) -> Result<Member, RepositoryError>;
+    /// Get member by ID within tenant scope (multi-tenant).
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<Member>, RepositoryError>;
 }
 
 /// SQLx/PostgreSQL implementation of [`RoomRepository`].
@@ -389,6 +453,8 @@ impl RoomRepository for InMemoryRoomRepository {
             name: name.to_string(),
             topic: topic.map(std::string::ToString::to_string),
             created_at: Utc::now(),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         };
 
         self.rooms
@@ -408,6 +474,53 @@ impl RoomRepository for InMemoryRoomRepository {
             .read()
             .await
             .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        rooms.sort_by_key(|room| room.created_at);
+        Ok(rooms)
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        topic: Option<&str>,
+    ) -> Result<Room, RepositoryError> {
+        let room = Room {
+            id: format!("room_{}", Uuid::new_v4().simple()),
+            name: name.to_string(),
+            topic: topic.map(std::string::ToString::to_string),
+            created_at: Utc::now(),
+            tenant_id: Some(tenant_id.to_string()),
+        };
+
+        self.rooms
+            .write()
+            .await
+            .insert(room.id.clone(), room.clone());
+        Ok(room)
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(&self, tenant_id: &str, id: &str) -> Result<Option<Room>, RepositoryError> {
+        Ok(self
+            .rooms
+            .read()
+            .await
+            .get(id)
+            .filter(|room| room.tenant_id.as_deref() == Some(tenant_id))
+            .cloned())
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn list_tenant(&self, tenant_id: &str) -> Result<Vec<Room>, RepositoryError> {
+        let mut rooms = self
+            .rooms
+            .read()
+            .await
+            .values()
+            .filter(|room| room.tenant_id.as_deref() == Some(tenant_id))
             .cloned()
             .collect::<Vec<_>>();
         rooms.sort_by_key(|room| room.created_at);
@@ -436,6 +549,8 @@ impl MessageRepository for InMemoryMessageRepository {
             sender_id: sender_id.to_string(),
             content: content.to_string(),
             created_at: Utc::now(),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         };
 
         self.messages
@@ -461,6 +576,66 @@ impl MessageRepository for InMemoryMessageRepository {
         messages.sort_by_key(|message| message.created_at);
         Ok(messages)
     }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        room_id: &str,
+        sender_id: &str,
+        content: &str,
+    ) -> Result<Message, RepositoryError> {
+        let message = Message {
+            id: format!("msg_{}", Uuid::new_v4().simple()),
+            room_id: room_id.to_string(),
+            sender_id: sender_id.to_string(),
+            content: content.to_string(),
+            created_at: Utc::now(),
+            tenant_id: Some(tenant_id.to_string()),
+        };
+
+        self.messages
+            .write()
+            .await
+            .insert(message.id.clone(), message.clone());
+        Ok(message)
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<Message>, RepositoryError> {
+        Ok(self
+            .messages
+            .read()
+            .await
+            .get(id)
+            .filter(|msg| msg.tenant_id.as_deref() == Some(tenant_id))
+            .cloned())
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn list_by_room_tenant(
+        &self,
+        tenant_id: &str,
+        room_id: &str,
+    ) -> Result<Vec<Message>, RepositoryError> {
+        let mut messages = self
+            .messages
+            .read()
+            .await
+            .values()
+            .filter(|message| {
+                message.room_id == room_id
+                    && message.tenant_id.as_deref() == Some(tenant_id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        messages.sort_by_key(|message| message.created_at);
+        Ok(messages)
+    }
 }
 
 #[cfg(test)]
@@ -478,6 +653,8 @@ impl MemberRepository for InMemoryMemberRepository {
             member_type: member_type.to_string(),
             email: email.to_string(),
             created_at: Utc::now(),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         };
         self.members
             .write()
@@ -488,6 +665,42 @@ impl MemberRepository for InMemoryMemberRepository {
 
     async fn get(&self, id: &str) -> Result<Option<Member>, RepositoryError> {
         Ok(self.members.read().await.get(id).cloned())
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        member_type: &str,
+        email: &str,
+    ) -> Result<Member, RepositoryError> {
+        let member = Member {
+            id: format!("member_{}", Uuid::new_v4().simple()),
+            member_type: member_type.to_string(),
+            email: email.to_string(),
+            created_at: Utc::now(),
+            tenant_id: Some(tenant_id.to_string()),
+        };
+        self.members
+            .write()
+            .await
+            .insert(member.id.clone(), member.clone());
+        Ok(member)
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<Member>, RepositoryError> {
+        Ok(self
+            .members
+            .read()
+            .await
+            .get(id)
+            .filter(|member| member.tenant_id.as_deref() == Some(tenant_id))
+            .cloned())
     }
 }
 
@@ -546,5 +759,149 @@ mod tests {
 
         assert_eq!(loaded.member_type, "human");
         assert_eq!(loaded.email, "alice@example.com");
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    #[tokio::test]
+    async fn room_repository_tenant_isolation() {
+        let repository = InMemoryRoomRepository::default();
+
+        let tenant_a_room = repository
+            .create_tenant("tenant_a", "room-a", Some("topic-a"))
+            .await
+            .unwrap();
+        let tenant_b_room = repository
+            .create_tenant("tenant_b", "room-b", Some("topic-b"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            repository.get_tenant("tenant_a", &tenant_a_room.id).await.unwrap(),
+            Some(tenant_a_room.clone())
+        );
+        assert_eq!(
+            repository.get_tenant("tenant_b", &tenant_b_room.id).await.unwrap(),
+            Some(tenant_b_room.clone())
+        );
+
+        assert_eq!(
+            repository.get_tenant("tenant_a", &tenant_b_room.id).await.unwrap(),
+            None,
+            "Cross-tenant access should return None"
+        );
+        assert_eq!(
+            repository.get_tenant("tenant_b", &tenant_a_room.id).await.unwrap(),
+            None,
+            "Cross-tenant access should return None"
+        );
+
+        let tenant_a_rooms = repository.list_tenant("tenant_a").await.unwrap();
+        assert_eq!(tenant_a_rooms.len(), 1);
+        assert_eq!(tenant_a_rooms[0].name, "room-a");
+
+        let tenant_b_rooms = repository.list_tenant("tenant_b").await.unwrap();
+        assert_eq!(tenant_b_rooms.len(), 1);
+        assert_eq!(tenant_b_rooms[0].name, "room-b");
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    #[tokio::test]
+    async fn message_repository_tenant_isolation() {
+        let repository = InMemoryMessageRepository::default();
+
+        let tenant_a_msg = repository
+            .create_tenant("tenant_a", "room_1", "sender_1", "hello from a")
+            .await
+            .unwrap();
+        let tenant_b_msg = repository
+            .create_tenant("tenant_b", "room_1", "sender_2", "hello from b")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            repository.get_tenant("tenant_a", &tenant_a_msg.id).await.unwrap(),
+            Some(tenant_a_msg.clone())
+        );
+        assert_eq!(
+            repository.get_tenant("tenant_b", &tenant_b_msg.id).await.unwrap(),
+            Some(tenant_b_msg.clone())
+        );
+
+        assert_eq!(
+            repository.get_tenant("tenant_a", &tenant_b_msg.id).await.unwrap(),
+            None,
+            "Cross-tenant access should return None"
+        );
+
+        let tenant_a_messages = repository.list_by_room_tenant("tenant_a", "room_1").await.unwrap();
+        assert_eq!(tenant_a_messages.len(), 1);
+        assert_eq!(tenant_a_messages[0].content, "hello from a");
+
+        let tenant_b_messages = repository.list_by_room_tenant("tenant_b", "room_1").await.unwrap();
+        assert_eq!(tenant_b_messages.len(), 1);
+        assert_eq!(tenant_b_messages[0].content, "hello from b");
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    #[tokio::test]
+    async fn member_repository_tenant_isolation() {
+        let repository = InMemoryMemberRepository::default();
+
+        let tenant_a_member = repository
+            .create_tenant("tenant_a", "human", "alice@tenant-a.com")
+            .await
+            .unwrap();
+        let tenant_b_member = repository
+            .create_tenant("tenant_b", "human", "bob@tenant-b.com")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            repository.get_tenant("tenant_a", &tenant_a_member.id).await.unwrap(),
+            Some(tenant_a_member.clone())
+        );
+        assert_eq!(
+            repository.get_tenant("tenant_b", &tenant_b_member.id).await.unwrap(),
+            Some(tenant_b_member.clone())
+        );
+
+        assert_eq!(
+            repository.get_tenant("tenant_a", &tenant_b_member.id).await.unwrap(),
+            None,
+            "Cross-tenant access should return None"
+        );
+        assert_eq!(
+            repository.get_tenant("tenant_b", &tenant_a_member.id).await.unwrap(),
+            None,
+            "Cross-tenant access should return None"
+        );
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    #[tokio::test]
+    async fn tenant_data_isolation_prevents_cross_tenant_access() {
+        let room_repo = InMemoryRoomRepository::default();
+        let msg_repo = InMemoryMessageRepository::default();
+
+        let room_a = room_repo
+            .create_tenant("tenant_evil", "secret-room", Some("confidential"))
+            .await
+            .unwrap();
+        let msg_a = msg_repo
+            .create_tenant("tenant_evil", &room_a.id, "attacker", "secret data")
+            .await
+            .unwrap();
+
+        let room_result = room_repo.get_tenant("tenant_victim", &room_a.id).await.unwrap();
+        assert_eq!(room_result, None, "Victim tenant should not see evil tenant's room");
+
+        let msg_result = msg_repo.get_tenant("tenant_victim", &msg_a.id).await.unwrap();
+        assert_eq!(msg_result, None, "Victim tenant should not see evil tenant's message");
+
+        let victim_rooms = room_repo.list_tenant("tenant_victim").await.unwrap();
+        assert!(victim_rooms.is_empty(), "Victim should have empty room list");
+
+        let victim_messages = msg_repo.list_by_room_tenant("tenant_victim", &room_a.id).await.unwrap();
+        assert!(victim_messages.is_empty(), "Victim should have empty message list for evil room");
     }
 }
