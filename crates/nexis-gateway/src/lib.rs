@@ -24,5 +24,8 @@ pub use metrics::{export as export_metrics, init_metrics};
 pub use router::build_routes;
 pub use search::{SearchRequest, SearchResponse, SearchService, SemanticSearchService};
 
+#[cfg(feature = "multi-tenant")]
+pub use auth::{TenantContext, TenantError, TenantExtractor};
+
 /// Gateway version
 pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");

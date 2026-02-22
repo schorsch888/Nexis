@@ -16,6 +16,9 @@ use uuid::Uuid;
 
 use crate::search::{SearchError, SearchRequest, SearchService};
 
+#[cfg(feature = "multi-tenant")]
+use crate::auth::TenantStore;
+
 #[derive(Clone)]
 struct AppState {
     rooms: Arc<RwLock<HashMap<String, Room>>>,
@@ -23,6 +26,8 @@ struct AppState {
     room_members: Arc<RwLock<HashMap<String, Vec<String>>>>,
     write_gate: Arc<Semaphore>,
     search_service: Option<Arc<dyn SearchService>>,
+    #[cfg(feature = "multi-tenant")]
+    tenant_store: TenantStore,
 }
 
 impl Default for AppState {
@@ -33,6 +38,8 @@ impl Default for AppState {
             room_members: Arc::new(RwLock::new(HashMap::new())),
             write_gate: Arc::new(Semaphore::new(2_048)),
             search_service: None,
+            #[cfg(feature = "multi-tenant")]
+            tenant_store: TenantStore::new(),
         }
     }
 }
@@ -52,6 +59,9 @@ struct Room {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     topic: Option<String>,
+    #[cfg(feature = "multi-tenant")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -59,6 +69,9 @@ struct CreateRoomRequest {
     name: String,
     #[serde(default)]
     topic: Option<String>,
+    #[cfg(feature = "multi-tenant")]
+    #[serde(default)]
+    tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +111,9 @@ struct RoomInfoResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     topic: Option<String>,
     messages: Vec<StoredMessage>,
+    #[cfg(feature = "multi-tenant")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -228,10 +244,18 @@ async fn create_room(
             .into_response();
     }
 
+    #[cfg(feature = "multi-tenant")]
+    let tenant_id = payload.tenant_id.clone();
+
+    #[cfg(not(feature = "multi-tenant"))]
+    let _tenant_id: Option<String> = None;
+
     let room = Room {
         id: format!("room_{}", Uuid::new_v4().simple()),
         name: payload.name,
         topic: payload.topic,
+        #[cfg(feature = "multi-tenant")]
+        tenant_id,
     };
 
     let response = CreateRoomResponse {
@@ -321,11 +345,19 @@ async fn get_room(State(state): State<SharedState>, Path(id): Path<String>) -> i
         .get(&id)
         .cloned()
         .unwrap_or_default();
+
+    #[cfg(feature = "multi-tenant")]
+    let tenant_id = room.tenant_id.clone();
+    #[cfg(not(feature = "multi-tenant"))]
+    let _tenant_id: Option<String> = None;
+
     let response = RoomInfoResponse {
         id: room.id,
         name: room.name,
         topic: room.topic,
         messages,
+        #[cfg(feature = "multi-tenant")]
+        tenant_id,
     };
 
     (StatusCode::OK, Json(response)).into_response()
@@ -627,5 +659,39 @@ mod tests {
         assert_eq!(get_payload["id"], room_id);
         assert_eq!(get_payload["messages"].as_array().unwrap().len(), 1);
         assert_eq!(get_payload["messages"][0]["text"], "hello");
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    mod multi_tenant_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn create_room_with_tenant_includes_tenant_id() {
+            let app = build_routes();
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/rooms")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({
+                                "name": "tenant-room",
+                                "tenant_id": "tenant_123"
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::CREATED);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let payload: Value = serde_json::from_slice(&body).unwrap();
+            assert!(payload["id"].as_str().unwrap().starts_with("room_"));
+        }
     }
 }
