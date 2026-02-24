@@ -4,13 +4,12 @@
 
 #[cfg(feature = "multi-tenant")]
 mod multi_tenant_tests {
-    use nexis_gateway::auth::{TenantContext, TenantError, TenantExtractor};
+    use nexis_gateway::auth::{TenantContext, TenantError};
     use nexis_core::tenant::TenantId;
-    use uuid::Uuid;
 
     #[test]
     fn tenant_context_extraction() {
-        let tenant_id = TenantId::new(Uuid::new_v4());
+        let tenant_id = TenantId::new();
         let ctx = TenantContext::new(tenant_id.clone());
 
         assert_eq!(ctx.tenant_id(), &tenant_id);
@@ -18,8 +17,8 @@ mod multi_tenant_tests {
 
     #[test]
     fn cross_tenant_access_denied() {
-        let tenant_a = TenantId::new(Uuid::new_v4());
-        let tenant_b = TenantId::new(Uuid::new_v4());
+        let tenant_a = TenantId::new();
+        let tenant_b = TenantId::new();
 
         let ctx_a = TenantContext::new(tenant_a);
 
@@ -29,7 +28,7 @@ mod multi_tenant_tests {
 
     #[test]
     fn same_tenant_access_allowed() {
-        let tenant_id = TenantId::new(Uuid::new_v4());
+        let tenant_id = TenantId::new();
         let ctx = TenantContext::new(tenant_id.clone());
 
         // Verify that tenant context can access its own resources

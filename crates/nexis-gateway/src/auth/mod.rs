@@ -125,6 +125,12 @@ impl JwtConfig {
                 }
             })
     }
+
+    #[cfg(test)]
+    pub fn test_token(member_id: &str) -> String {
+        let config = Self::new("test-secret", "test".to_string(), "test".to_string());
+        config.generate_token(member_id, "human").unwrap()
+    }
 }
 
 pub struct AuthenticatedUser {
@@ -142,8 +148,54 @@ where
 {
     type Rejection = StatusCode;
 
-    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Err(StatusCode::UNAUTHORIZED)
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let auth_header = parts
+            .headers
+            .get("Authorization")
+            .and_then(|h| h.to_str().ok());
+
+        let Some(header_value) = auth_header else {
+            return Err(StatusCode::UNAUTHORIZED);
+        };
+
+        if !header_value.starts_with("Bearer ") {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+
+        let token = &header_value[7..];
+
+        // Use test config in test environment, production config otherwise
+        #[cfg(test)]
+        let config = JwtConfig::new("test-secret", "test".to_string(), "test".to_string());
+        
+        #[cfg(not(test))]
+        let config = JwtConfig::new(
+            &std::env::var("JWT_SECRET").unwrap_or_else(|_| "default_secret".to_string()),
+            std::env::var("JWT_ISSUER").unwrap_or_else(|_| "nexis".to_string()),
+            std::env::var("JWT_AUDIENCE").unwrap_or_else(|_| "nexis".to_string()),
+        );
+
+        let claims = config.verify_token(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+        #[cfg(feature = "multi-tenant")]
+        {
+            let tenant_context = extract_tenant_from_claims(&claims);
+            Ok(AuthenticatedUser {
+                member_id: claims.sub.clone(),
+                member_type: claims.member_type.clone(),
+                claims,
+                tenant_context,
+            })
+        }
+
+        #[cfg(not(feature = "multi-tenant"))]
+        {
+            Ok(AuthenticatedUser {
+                member_id: claims.sub.clone(),
+                member_type: claims.member_type.clone(),
+                claims,
+            })
+        }
     }
 }
 

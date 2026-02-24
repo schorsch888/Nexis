@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 #[cfg(feature = "persistence-sqlx")]
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use thiserror::Error;
@@ -12,8 +13,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(test)]
 use tokio::sync::RwLock;
-#[cfg(test)]
-use uuid::Uuid;
 
 /// Database connection pool type used by gateway persistence.
 #[cfg(feature = "persistence-sqlx")]
@@ -269,6 +268,8 @@ impl RoomRepository for SqlxRoomRepository {
             name: row.get("name"),
             topic: row.get("topic"),
             created_at: row.get("created_at"),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         })
     }
 
@@ -283,6 +284,8 @@ impl RoomRepository for SqlxRoomRepository {
             name: row.get("name"),
             topic: row.get("topic"),
             created_at: row.get("created_at"),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         }))
     }
 
@@ -299,6 +302,75 @@ impl RoomRepository for SqlxRoomRepository {
                 name: row.get("name"),
                 topic: row.get("topic"),
                 created_at: row.get("created_at"),
+                #[cfg(feature = "multi-tenant")]
+                tenant_id: None,
+            })
+            .collect())
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        topic: Option<&str>,
+    ) -> Result<Room, RepositoryError> {
+        let id = format!("room_{}", Uuid::new_v4().simple());
+        let row = sqlx::query(
+            "INSERT INTO rooms (id, name, topic, tenant_id) VALUES ($1, $2, $3, $4) RETURNING id, name, topic, created_at, tenant_id",
+        )
+        .bind(&id)
+        .bind(name)
+        .bind(topic)
+        .bind(tenant_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(Room {
+            id: row.get("id"),
+            name: row.get("name"),
+            topic: row.get("topic"),
+            created_at: row.get("created_at"),
+            tenant_id: row.get("tenant_id"),
+        })
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(&self, tenant_id: &str, id: &str) -> Result<Option<Room>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, name, topic, created_at, tenant_id FROM rooms WHERE id = $1 AND tenant_id = $2",
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| Room {
+            id: row.get("id"),
+            name: row.get("name"),
+            topic: row.get("topic"),
+            created_at: row.get("created_at"),
+            tenant_id: row.get("tenant_id"),
+        }))
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn list_tenant(&self, tenant_id: &str) -> Result<Vec<Room>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, name, topic, created_at, tenant_id FROM rooms WHERE tenant_id = $1 ORDER BY created_at ASC",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| Room {
+                id: row.get("id"),
+                name: row.get("name"),
+                topic: row.get("topic"),
+                created_at: row.get("created_at"),
+                tenant_id: row.get("tenant_id"),
             })
             .collect())
     }
@@ -345,6 +417,8 @@ impl MessageRepository for SqlxMessageRepository {
             sender_id: row.get("sender_id"),
             content: row.get("content"),
             created_at: row.get("created_at"),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         })
     }
 
@@ -362,6 +436,8 @@ impl MessageRepository for SqlxMessageRepository {
             sender_id: row.get("sender_id"),
             content: row.get("content"),
             created_at: row.get("created_at"),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         }))
     }
 
@@ -381,6 +457,89 @@ impl MessageRepository for SqlxMessageRepository {
                 sender_id: row.get("sender_id"),
                 content: row.get("content"),
                 created_at: row.get("created_at"),
+                #[cfg(feature = "multi-tenant")]
+                tenant_id: None,
+            })
+            .collect())
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        room_id: &str,
+        sender_id: &str,
+        content: &str,
+    ) -> Result<Message, RepositoryError> {
+        let id = format!("msg_{}", Uuid::new_v4().simple());
+        let row = sqlx::query(
+            "INSERT INTO messages (id, room_id, sender_id, content, tenant_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, room_id, sender_id, content, created_at, tenant_id",
+        )
+        .bind(&id)
+        .bind(room_id)
+        .bind(sender_id)
+        .bind(content)
+        .bind(tenant_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(Message {
+            id: row.get("id"),
+            room_id: row.get("room_id"),
+            sender_id: row.get("sender_id"),
+            content: row.get("content"),
+            created_at: row.get("created_at"),
+            tenant_id: row.get("tenant_id"),
+        })
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<Message>, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, room_id, sender_id, content, created_at, tenant_id FROM messages WHERE id = $1 AND tenant_id = $2",
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| Message {
+            id: row.get("id"),
+            room_id: row.get("room_id"),
+            sender_id: row.get("sender_id"),
+            content: row.get("content"),
+            created_at: row.get("created_at"),
+            tenant_id: row.get("tenant_id"),
+        }))
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn list_by_room_tenant(
+        &self,
+        tenant_id: &str,
+        room_id: &str,
+    ) -> Result<Vec<Message>, RepositoryError> {
+        let rows = sqlx::query(
+            "SELECT id, room_id, sender_id, content, created_at, tenant_id FROM messages WHERE room_id = $1 AND tenant_id = $2 ORDER BY created_at ASC",
+        )
+        .bind(room_id)
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| Message {
+                id: row.get("id"),
+                room_id: row.get("room_id"),
+                sender_id: row.get("sender_id"),
+                content: row.get("content"),
+                created_at: row.get("created_at"),
+                tenant_id: row.get("tenant_id"),
             })
             .collect())
     }
@@ -420,6 +579,8 @@ impl MemberRepository for SqlxMemberRepository {
             member_type: row.get("type"),
             email: row.get("email"),
             created_at: row.get("created_at"),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
         })
     }
 
@@ -434,6 +595,58 @@ impl MemberRepository for SqlxMemberRepository {
             member_type: row.get("type"),
             email: row.get("email"),
             created_at: row.get("created_at"),
+            #[cfg(feature = "multi-tenant")]
+            tenant_id: None,
+        }))
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn create_tenant(
+        &self,
+        tenant_id: &str,
+        member_type: &str,
+        email: &str,
+    ) -> Result<Member, RepositoryError> {
+        let id = format!("member_{}", Uuid::new_v4().simple());
+        let row = sqlx::query(
+            r#"INSERT INTO members (id, "type", email, tenant_id) VALUES ($1, $2, $3, $4) RETURNING id, "type", email, created_at, tenant_id"#,
+        )
+        .bind(&id)
+        .bind(member_type)
+        .bind(email)
+        .bind(tenant_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(Member {
+            id: row.get("id"),
+            member_type: row.get("type"),
+            email: row.get("email"),
+            created_at: row.get("created_at"),
+            tenant_id: row.get("tenant_id"),
+        })
+    }
+
+    #[cfg(feature = "multi-tenant")]
+    async fn get_tenant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<Member>, RepositoryError> {
+        let row = sqlx::query(
+            r#"SELECT id, "type", email, created_at, tenant_id FROM members WHERE id = $1 AND tenant_id = $2"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| Member {
+            id: row.get("id"),
+            member_type: row.get("type"),
+            email: row.get("email"),
+            created_at: row.get("created_at"),
+            tenant_id: row.get("tenant_id"),
         }))
     }
 }

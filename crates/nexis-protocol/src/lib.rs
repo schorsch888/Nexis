@@ -13,16 +13,18 @@ use thiserror::Error;
 #[serde(rename_all = "lowercase")]
 pub enum MemberType {
     Human,
+    Ai,
     Agent,
-    Bot,
+    System,
 }
 
 impl MemberType {
     pub fn as_str(&self) -> &str {
         match self {
             MemberType::Human => "human",
+            MemberType::Ai => "ai",
             MemberType::Agent => "agent",
-            MemberType::Bot => "bot",
+            MemberType::System => "system",
         }
     }
 }
@@ -58,8 +60,9 @@ impl MemberId {
         let parts: Vec<&str> = self.0.split(':').collect();
         match parts.get(1).copied() {
             Some("human") => MemberType::Human,
+            Some("ai") => MemberType::Ai,
             Some("agent") => MemberType::Agent,
-            Some("bot") => MemberType::Bot,
+            Some("system") => MemberType::System,
             _ => MemberType::Human,
         }
     }
@@ -87,7 +90,7 @@ impl std::str::FromStr for MemberId {
         let identifier = parts[1..].join(":");
 
         match member_type {
-            "human" | "agent" | "bot" => {}
+            "human" | "ai" | "agent" | "system" => {}
             _ => return Err(MemberIdError::InvalidType(member_type.to_string())),
         }
 
@@ -148,19 +151,43 @@ pub enum MessageContent {
     Text {
         text: String,
     },
+    Markdown {
+        markdown: String,
+    },
+    Data {
+        data: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+    },
+    Media {
+        url: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alt_text: Option<String>,
+    },
     Code {
         code: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
     Tool {
         tool_name: String,
         input: serde_json::Value,
     },
+    ToolCall {
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        name: String,
+        arguments: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
     pub id: String,
     #[serde(rename = "roomId")]
     pub room_id: String,
@@ -175,6 +202,8 @@ pub struct Message {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
+pub const PROTOCOL_VERSION: &str = "1.0.0";
+
 impl Message {
     pub fn new(
         id: String,
@@ -184,6 +213,7 @@ impl Message {
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
+            protocol_version: PROTOCOL_VERSION.to_string(),
             id,
             room_id,
             sender,
@@ -257,6 +287,7 @@ mod tests {
     fn message_serializes_to_nip_002_shape() {
         let sender = "nexis:agent:openai/gpt-4".parse::<MemberId>().unwrap();
         let message = Message {
+            protocol_version: super::PROTOCOL_VERSION.to_string(),
             id: "msg_abc123".to_string(),
             room_id: "room_xyz".to_string(),
             sender,
@@ -270,6 +301,7 @@ mod tests {
         };
 
         let encoded = serde_json::to_value(&message).unwrap();
+        assert_eq!(encoded["protocolVersion"], "1.0.0");
         assert_eq!(encoded["roomId"], "room_xyz");
         assert_eq!(encoded["sender"], "nexis:agent:openai/gpt-4");
         assert_eq!(encoded["content"]["type"], "text");

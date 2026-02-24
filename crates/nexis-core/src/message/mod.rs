@@ -34,6 +34,7 @@ impl MessageBuilder {
 
     pub fn build(self) -> Message {
         Message {
+            protocol_version: nexis_protocol::PROTOCOL_VERSION.to_string(),
             id: self.id,
             room_id: self.room_id,
             sender: self.sender,

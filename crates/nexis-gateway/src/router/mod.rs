@@ -15,9 +15,10 @@ use tokio::sync::{mpsc, RwLock, Semaphore};
 use uuid::Uuid;
 
 use crate::search::{SearchError, SearchRequest, SearchService};
+use crate::auth::AuthenticatedUser;
 
 #[cfg(feature = "multi-tenant")]
-use crate::auth::TenantStore;
+use crate::auth::{TenantExtractor, TenantStore};
 
 #[derive(Clone)]
 struct AppState {
@@ -234,6 +235,7 @@ async fn websocket_handler(ws: WebSocketUpgrade) -> Response {
 
 async fn create_room(
     State(state): State<SharedState>,
+    _user: AuthenticatedUser,
     Json(payload): Json<CreateRoomRequest>,
 ) -> impl IntoResponse {
     if payload.name.trim().is_empty() {
@@ -279,6 +281,7 @@ async fn create_room(
 
 async fn send_message(
     State(state): State<SharedState>,
+    _user: AuthenticatedUser,
     Json(payload): Json<SendMessageRequest>,
 ) -> impl IntoResponse {
     if payload.room_id.trim().is_empty()
@@ -326,7 +329,11 @@ async fn send_message(
     (StatusCode::CREATED, Json(response)).into_response()
 }
 
-async fn get_room(State(state): State<SharedState>, Path(id): Path<String>) -> impl IntoResponse {
+async fn get_room(
+    State(state): State<SharedState>,
+    _user: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
     let rooms = state.rooms.read().await;
     let Some(room) = rooms.get(&id) else {
         return (
@@ -365,6 +372,7 @@ async fn get_room(State(state): State<SharedState>, Path(id): Path<String>) -> i
 
 async fn invite_member(
     State(state): State<SharedState>,
+    _user: AuthenticatedUser,
     Path(id): Path<String>,
     Json(payload): Json<InviteMemberRequest>,
 ) -> impl IntoResponse {
@@ -411,6 +419,7 @@ async fn invite_member(
 
 async fn search_messages(
     State(state): State<SharedState>,
+    _user: AuthenticatedUser,
     Json(payload): Json<SearchApiRequest>,
 ) -> impl IntoResponse {
     let Some(search_service) = state.search_service.as_ref() else {
@@ -539,6 +548,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_room_returns_201_and_room_identity() {
+        use crate::auth::JwtConfig;
+        let token = JwtConfig::test_token("test-user");
+        
         let app = build_routes();
         let response = app
             .oneshot(
@@ -546,6 +558,7 @@ mod tests {
                     .method("POST")
                     .uri("/v1/rooms")
                     .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(
                         json!({
                             "name": "general",
@@ -569,6 +582,9 @@ mod tests {
 
     #[tokio::test]
     async fn send_message_returns_404_for_unknown_room() {
+        use crate::auth::JwtConfig;
+        let token = JwtConfig::test_token("test-user");
+        
         let app = build_routes();
         let response = app
             .oneshot(
@@ -576,6 +592,7 @@ mod tests {
                     .method("POST")
                     .uri("/v1/messages")
                     .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(
                         json!({
                             "roomId": "room_missing",
@@ -594,6 +611,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_room_returns_messages_after_send() {
+        use crate::auth::JwtConfig;
+        let token = JwtConfig::test_token("test-user");
+        
         let app = build_routes();
 
         let create_response = app
@@ -603,6 +623,7 @@ mod tests {
                     .method("POST")
                     .uri("/v1/rooms")
                     .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(
                         json!({
                             "name": "general"
@@ -627,6 +648,7 @@ mod tests {
                     .method("POST")
                     .uri("/v1/messages")
                     .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(
                         json!({
                             "roomId": room_id.clone(),
@@ -646,6 +668,7 @@ mod tests {
                 Request::builder()
                     .method("GET")
                     .uri(format!("/v1/rooms/{}", room_id.clone()))
+                    .header("authorization", format!("Bearer {}", token))
                     .body(Body::empty())
                     .unwrap(),
             )
