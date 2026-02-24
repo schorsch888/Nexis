@@ -1,0 +1,83 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+
+.dialog {
+  background: var(--bg-primary);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow-lg);
+}
+
+.dialog h3 {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: 1.25rem;
+}
+
+.field {
+  margin-bottom: var(--spacing-md);
+}
+
+.field label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+}
+
+.error {
+  padding: 0.5rem;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-error);
+  font-size: 0.875rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+}
+
+.actions button {
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.actions button[type="button"] {
+  background: transparent;
+  border: 1px solid var(--border-primary);
+}
+
+.actions button[type="submit"] {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+}
+
+.actions button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

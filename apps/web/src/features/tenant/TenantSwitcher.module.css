@@ -1,0 +1,19 @@
+.switcher {
+  display: flex;
+  align-items: center;
+}
+
+.select {
+  padding: 0.375rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--text-inverse);
+  border-radius: 4px;
+  color: var(--text-inverse);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}

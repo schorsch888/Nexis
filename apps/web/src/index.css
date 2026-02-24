@@ -2,8 +2,12 @@
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
@@ -17,88 +21,63 @@ body {
   height: 100vh;
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem;
+.spinner {
+  display: inline-flex;
+  animation: spin 1s linear infinite;
 }
 
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 2rem;
-  background: #1a1a2e;
-  color: white;
+.spinner svg {
+  color: var(--color-primary);
 }
 
-.navbar a {
-  color: white;
-  text-decoration: none;
-  margin-left: 1rem;
+.spinner-sm svg {
+  width: 16px;
+  height: 16px;
 }
 
-.room-list {
-  display: grid;
-  gap: 1rem;
-  padding: 1rem;
+.spinner-md svg {
+  width: 24px;
+  height: 24px;
 }
 
-.room-card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 1rem;
-  cursor: pointer;
-  transition: box-shadow 0.2s;
+.spinner-lg svg {
+  width: 32px;
+  height: 32px;
 }
 
-.room-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.chat-container {
+.empty-state {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 60px);
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  text-align: center;
 }
 
-.message-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
+.empty-state h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: var(--text-primary);
 }
 
-.message {
-  margin-bottom: 1rem;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  background: #f5f5f5;
+.empty-state p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
 }
 
-.message.ai {
-  background: #e3f2fd;
-  margin-left: 2rem;
-}
-
-.message-input {
-  display: flex;
-  padding: 1rem;
-  border-top: 1px solid #ddd;
-}
-
-.message-input input {
-  flex: 1;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-right: 0.5rem;
-}
-
-.message-input button {
-  padding: 0.75rem 1.5rem;
-  background: #1a1a2e;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+input:focus,
+button:focus,
+select:focus,
+textarea:focus {
+  outline: none;
 }
