@@ -1,29 +1,10 @@
-import type { ConnectionState } from './messagesStore'
-import styles from './ConnectionBadge.module.css'
+import type { ConnectionState as ConnectionStatus } from '../../shared/ws/types'
+import { ConnectionState } from './ConnectionState'
 
 interface ConnectionBadgeProps {
-  state: ConnectionState
-}
-
-const stateLabels: Record<ConnectionState, string> = {
-  connected: 'Connected',
-  connecting: 'Connecting...',
-  disconnected: 'Disconnected',
-  reconnecting: 'Reconnecting...',
-}
-
-const stateClasses: Record<ConnectionState, string> = {
-  connected: styles.connected,
-  connecting: styles.connecting,
-  disconnected: styles.disconnected,
-  reconnecting: styles.reconnecting,
+  state: ConnectionStatus
 }
 
 export function ConnectionBadge({ state }: ConnectionBadgeProps) {
-  return (
-    <span className={`${styles.badge} ${stateClasses[state]}`}>
-      <span className={styles.dot} />
-      {stateLabels[state]}
-    </span>
-  )
+  return <ConnectionState state={state} unreadCount={0} />
 }

@@ -2,13 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useMessagesStore } from './messagesStore'
 import { useRoomsStore } from '../rooms/roomsStore'
-import { ConnectionBadge } from './ConnectionBadge'
+import { ConnectionState } from './ConnectionState'
 import styles from './RoomDetailPage.module.css'
 
 export function RoomDetailPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const { currentRoom, fetchRoom } = useRoomsStore()
-  const { messages, loading, error, sendMessage, fetchMessages, connect, disconnect, connectionState } = useMessagesStore()
+  const { messages, loading, error, sendMessage, fetchMessages, connect, disconnect, connectionState, unreadCount, markAllRead } =
+    useMessagesStore()
   const [messageText, setMessageText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -19,7 +20,11 @@ export function RoomDetailPage() {
       connect(roomId)
     }
     return () => disconnect()
-  }, [roomId, fetchRoom, fetchMessages, connect, disconnect])
+  }, [roomId, fetchRoom, fetchMessages, connect, disconnect, markAllRead])
+
+  useEffect(() => {
+    markAllRead()
+  }, [messages.length, markAllRead])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -46,7 +51,7 @@ export function RoomDetailPage() {
           <h2>{currentRoom.name}</h2>
           {currentRoom.topic && <p className={styles.topic}>{currentRoom.topic}</p>}
         </div>
-        <ConnectionBadge state={connectionState} />
+        <ConnectionState state={connectionState} unreadCount={unreadCount} />
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
@@ -59,7 +64,16 @@ export function RoomDetailPage() {
             <div key={msg.id} className={`${styles.message} ${msg.sender.startsWith('nexis:ai:') ? styles.ai : ''}`}>
               <div className={styles.sender}>{msg.sender}</div>
               <div className={styles.text}>{msg.text}</div>
-              <div className={styles.time}>{new Date(msg.timestamp).toLocaleTimeString()}</div>
+              <div className={styles.meta}>
+                <span className={styles.time}>{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                <span
+                  className={`${styles.status} ${msg.deliveryStatus === 'failed' ? styles.failed : ''} ${
+                    msg.deliveryStatus === 'sending' ? styles.sending : ''
+                  }`}
+                >
+                  {msg.deliveryStatus}
+                </span>
+              </div>
             </div>
           ))
         )}
@@ -74,7 +88,9 @@ export function RoomDetailPage() {
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           placeholder="Type a message..."
         />
-        <button onClick={handleSend}>Send</button>
+        <button onClick={handleSend} disabled={connectionState === 'reconnecting' || connectionState === 'connecting'}>
+          {connectionState === 'connected' ? 'Send' : 'Queue'}
+        </button>
       </div>
     </div>
   )

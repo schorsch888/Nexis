@@ -1,2 +1,8 @@
 export { WebSocketClient, wsClient } from './wsClient'
-export type { WebSocketClientOptions, WebSocketMessage, WebSocketEventType } from './types'
+export type {
+  ConnectionState,
+  MessageDeliveryStatus,
+  WebSocketClientOptions,
+  WebSocketMessage,
+  WebSocketEventType,
+} from './types'

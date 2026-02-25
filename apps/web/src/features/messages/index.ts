@@ -1,4 +1,5 @@
 export { RoomDetailPage } from './RoomDetailPage'
 export { ConnectionBadge } from './ConnectionBadge'
+export { ConnectionState } from './ConnectionState'
 export { useMessagesStore } from './messagesStore'
-export type { Message, ConnectionState } from './messagesStore'
+export type { Message, ConnectionState, MessageDeliveryStatus, RealtimeMessage } from './messagesStore'
