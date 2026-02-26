@@ -5,11 +5,13 @@
 //! - Tool calling system for AI agents
 //! - Control plane client for task management
 
+pub mod agent;
 pub mod embedding;
 pub mod providers;
 pub mod registry;
 pub mod tool;
 
+pub use agent::{compose_agent_prompt, AgentConfig, AgentRegistry, AgentRegistryError};
 pub use embedding::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingProvider, EmbeddingRequest,
     EmbeddingResponse, EmbeddingUsage, MockEmbeddingProvider, OpenAIEmbeddingProvider,

@@ -226,7 +226,7 @@ impl QueryEmbeddingCache {
 
     fn insert(&mut self, key: String, value: Vec<f32>) {
         use std::collections::hash_map::Entry;
-        
+
         if let Entry::Occupied(mut e) = self.map.entry(key.clone()) {
             e.insert(value);
             return;

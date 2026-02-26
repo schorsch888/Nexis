@@ -1,6 +1,7 @@
 use std::time::Duration;
+use std::{env, path::PathBuf};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -82,6 +83,43 @@ pub enum Commands {
         #[arg(long, help = "Minimum similarity score (0.0-1.0)")]
         min_score: Option<f32>,
     },
+    #[command(about = "Manage Agent role configurations")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommands,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum AgentCommands {
+    #[command(about = "List available agents")]
+    List(AgentListArgs),
+    #[command(about = "Run prompt with a configured agent identity")]
+    Run(AgentRunArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct AgentListArgs {
+    #[arg(long, help = "Agent directory path (defaults to .nexis/agents)")]
+    pub dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct AgentRunArgs {
+    #[arg(help = "Agent id or name")]
+    pub agent: String,
+    #[arg(long, short, help = "Prompt to send")]
+    pub prompt: String,
+    #[arg(
+        long,
+        default_value = "openai",
+        help = "Provider to use (openai or anthropic)"
+    )]
+    pub provider: String,
+    #[arg(long, short, help = "Use streaming")]
+    pub stream: bool,
+    #[arg(long, help = "Agent directory path (defaults to .nexis/agents)")]
+    pub dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Error)]
@@ -479,6 +517,109 @@ pub async fn run(cli: Cli) -> Result<String, CliError> {
             }
             Ok(output)
         }
+        Commands::Agent { command } => run_agent_command(command).await,
+    }
+}
+
+fn resolve_agent_dir(dir: Option<PathBuf>) -> Result<PathBuf, CliError> {
+    match dir {
+        Some(path) => Ok(path),
+        None => env::current_dir()
+            .map(|path| path.join(".nexis").join("agents"))
+            .map_err(|err| CliError::InvalidArgument(format!("failed to resolve cwd: {err}"))),
+    }
+}
+
+async fn run_agent_command(command: AgentCommands) -> Result<String, CliError> {
+    use nexis_runtime::{
+        compose_agent_prompt, AIProvider, AgentRegistry, AnthropicProvider, GenerateRequest,
+        OpenAIProvider, StreamChunk,
+    };
+    use std::sync::Arc;
+
+    match command {
+        AgentCommands::List(args) => {
+            let dir = resolve_agent_dir(args.dir)?;
+            let registry = AgentRegistry::from_dir(&dir).map_err(|err| {
+                CliError::InvalidArgument(format!(
+                    "failed to load agents from {}: {err}",
+                    dir.display()
+                ))
+            })?;
+
+            let ids = registry.list();
+            if ids.is_empty() {
+                return Ok(format!("No agents found in {}", dir.display()));
+            }
+
+            let mut output = format!("Agents in {}:\n", registry.dir().display());
+            for id in ids {
+                if let Some(config) = registry.get(&id) {
+                    output.push_str(&format!("- {}: {} ({})\n", id, config.name, config.role));
+                }
+            }
+            Ok(output)
+        }
+        AgentCommands::Run(args) => {
+            let dir = resolve_agent_dir(args.dir)?;
+            let registry = AgentRegistry::from_dir(&dir).map_err(|err| {
+                CliError::InvalidArgument(format!(
+                    "failed to load agents from {}: {err}",
+                    dir.display()
+                ))
+            })?;
+            let agent = registry.get(&args.agent).ok_or_else(|| {
+                CliError::InvalidArgument(format!(
+                    "agent `{}` not found in {}",
+                    args.agent,
+                    dir.display()
+                ))
+            })?;
+
+            let provider: Arc<dyn AIProvider> = match args.provider.as_str() {
+                "openai" => Arc::new(OpenAIProvider::from_env()),
+                "anthropic" => Arc::new(AnthropicProvider::from_env()),
+                other => {
+                    return Err(CliError::InvalidArgument(format!(
+                        "Unknown provider: {}",
+                        other
+                    )))
+                }
+            };
+
+            let req = GenerateRequest {
+                prompt: compose_agent_prompt(agent, &args.prompt),
+                model: None,
+                max_tokens: Some(300),
+                temperature: Some(0.7),
+                metadata: Some(serde_json::json!({
+                    "agent_id": args.agent,
+                    "agent_name": agent.name,
+                    "agent_role": agent.role
+                })),
+            };
+
+            if args.stream {
+                let mut stream = provider
+                    .generate_stream(req)
+                    .await
+                    .map_err(|e| CliError::HttpTransport(e.to_string()))?;
+                let mut output = String::new();
+                while let Some(chunk) = stream.next().await {
+                    match chunk.map_err(|e| CliError::HttpTransport(e.to_string()))? {
+                        StreamChunk::Delta { text } => output.push_str(&text),
+                        StreamChunk::Done => {}
+                    }
+                }
+                Ok(output)
+            } else {
+                let resp = provider
+                    .generate(req)
+                    .await
+                    .map_err(|e| CliError::HttpTransport(e.to_string()))?;
+                Ok(resp.content)
+            }
+        }
     }
 }
 
@@ -537,11 +678,16 @@ async fn test_provider(provider: &str, prompt: &str, stream: bool) -> Result<Str
 
 #[cfg(test)]
 mod tests {
-    use super::{connect_websocket_once, Cli, CliClient, CliError, Commands};
+    use super::{
+        connect_websocket_once, run, AgentCommands, AgentListArgs, AgentRunArgs, Cli, CliClient,
+        CliError, Commands,
+    };
     use clap::Parser;
     use futures::{SinkExt, StreamExt};
     use httpmock::{Method::POST, MockServer};
     use serde_json::json;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::net::TcpListener;
     use tokio_tungstenite::{accept_async, tungstenite::Message};
 
@@ -582,6 +728,105 @@ mod tests {
                 assert_eq!(text, "hello");
             }
             other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_agent_list_command() {
+        let cli = Cli::parse_from(["nexis-cli", "agent", "list"]);
+        match cli.command {
+            Commands::Agent {
+                command: AgentCommands::List(_),
+            } => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_agent_run_command() {
+        let cli = Cli::parse_from([
+            "nexis-cli",
+            "agent",
+            "run",
+            "workspace-coder",
+            "--prompt",
+            "build a plan",
+            "--provider",
+            "openai",
+        ]);
+        match cli.command {
+            Commands::Agent {
+                command: AgentCommands::Run(args),
+            } => {
+                assert_eq!(args.agent, "workspace-coder");
+                assert_eq!(args.prompt, "build a plan");
+                assert_eq!(args.provider, "openai");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    fn temp_dir(suffix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be monotonic")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nexis-cli-agent-test-{suffix}-{nanos}"));
+        fs::create_dir_all(&path).expect("should create temp dir");
+        path
+    }
+
+    #[tokio::test]
+    async fn agent_list_prints_configs_from_dir() {
+        let dir = temp_dir("list");
+        fs::write(
+            dir.join("workspace-coder.yaml"),
+            r#"
+name: Workspace Coder
+role: Product Engineer
+skills: []
+vibe: Fast
+constraints: []
+"#,
+        )
+        .expect("should write file");
+
+        let output = run(Cli {
+            server: "http://127.0.0.1:8080".to_string(),
+            command: Commands::Agent {
+                command: AgentCommands::List(AgentListArgs {
+                    dir: Some(dir.clone()),
+                }),
+            },
+        })
+        .await
+        .expect("list should succeed");
+
+        assert!(output.contains("workspace-coder"));
+        assert!(output.contains("Workspace Coder"));
+    }
+
+    #[tokio::test]
+    async fn agent_run_rejects_unknown_agent() {
+        let dir = temp_dir("run");
+        let err = run(Cli {
+            server: "http://127.0.0.1:8080".to_string(),
+            command: Commands::Agent {
+                command: AgentCommands::Run(AgentRunArgs {
+                    agent: "missing".to_string(),
+                    prompt: "hello".to_string(),
+                    provider: "openai".to_string(),
+                    stream: false,
+                    dir: Some(dir),
+                }),
+            },
+        })
+        .await
+        .unwrap_err();
+
+        match err {
+            CliError::InvalidArgument(msg) => assert!(msg.contains("not found")),
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
