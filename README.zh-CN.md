@@ -87,7 +87,7 @@ docker-compose up -d
 ## Documentation / 文档导航
 
 - [Documentation Home / 文档首页](docs/index.md)
-- [Getting Started / 快速开始](docs/en/getting-started/quickstart.md)
+- [Getting Started / 快速开始](docs/zh-CN/getting-started/quickstart.md)
 - [Architecture / 架构设计](docs/en/architecture/tenant-model.md)
 - [API Reference / API 参考](docs/en/api/reference.md)
 - [Deployment Guide / 部署指南](docs/deployment/guide.md)

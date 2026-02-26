@@ -257,8 +257,8 @@ git commit -m "feat(web): scaffold React TypeScript shell app"
 ### Task 8: 文档与 README 对齐修正
 
 **Files:**
-- Create: `docs/architecture/overview.md`
-- Create: `docs/api/gateway.md`
+- Create: `docs/en/architecture/overview.md`
+- Create: `docs/en/api/gateway.md`
 - Create: `docs/guides/local-development.md`
 - Modify: `README.md`
 

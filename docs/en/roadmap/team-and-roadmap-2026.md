@@ -3,11 +3,11 @@
 ## 0. 规划范围与基线
 - 规划时间：2026-03-02 至 2027-02-28
 - 基线文档：
-  - `docs/design/nexis-vision-design.md`
-  - `docs/design/a2a-protocol-design.md`
-  - `docs/design/skills-system-design.md`
-  - `docs/design/provider-system-design.md`
-  - `docs/roadmap/2026-02-27-cloud-native-ai-native.md`
+  - `docs/en/design/nexis-vision-design.md`
+  - `docs/en/design/a2a-protocol-design.md`
+  - `docs/en/design/skills-system-design.md`
+  - `docs/en/design/provider-system-design.md`
+  - `docs/en/roadmap/2026-02-27-cloud-native-ai-native.md`
 - 目标：
   - 组建顶尖专家团队（人类团队 + AI Agent 团队）
   - 建立可执行的 Phase 1-7 全量路线图
