@@ -16,3 +16,5 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
