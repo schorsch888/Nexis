@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::crdt::CRDTDocument;
+
 /// Document version metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocVersion {
@@ -30,4 +32,6 @@ pub struct Document {
     pub metadata: DocMetadata,
     pub content: String,
     pub current_version: DocVersion,
+    #[serde(skip, default)]
+    pub crdt_doc: Option<CRDTDocument>,
 }
