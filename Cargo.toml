@@ -103,6 +103,10 @@ nexis-runtime = { path = "crates/nexis-runtime" }
 nexis-vector = { path = "crates/nexis-vector" }
 nexis-context = { path = "crates/nexis-context" }
 nexis-federation = { path = "crates/nexis-federation" }
+nexis-meeting = { path = "crates/nexis-meeting" }
+nexis-doc = { path = "crates/nexis-doc" }
+nexis-task = { path = "crates/nexis-task" }
+nexis-calendar = { path = "crates/nexis-calendar" }
 
 # Release profile
 [profile.release]

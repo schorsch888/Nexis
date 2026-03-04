@@ -279,6 +279,7 @@ pub fn build_routes() -> Router {
         .route("/v1/rooms/:id/invite", post(invite_member))
         .route("/v1/messages", post(send_message))
         .route("/v1/search", get(search_messages_get).post(search_messages))
+        .merge(crate::collaboration::routes())
         .layer(middleware::from_fn(correlation_id_middleware))
         .with_state(state)
 }
@@ -298,6 +299,7 @@ pub fn build_routes_with_search(search_service: Arc<dyn SearchService>) -> Route
         .route("/v1/rooms/:id/invite", post(invite_member))
         .route("/v1/messages", post(send_message))
         .route("/v1/search", get(search_messages_get).post(search_messages))
+        .merge(crate::collaboration::routes())
         .layer(middleware::from_fn(correlation_id_middleware))
         .with_state(state)
 }

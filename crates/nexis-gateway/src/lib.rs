@@ -9,6 +9,7 @@
 //! - Metrics and monitoring
 
 pub mod auth;
+pub mod collaboration;
 pub mod connection;
 pub mod db;
 pub mod indexing;

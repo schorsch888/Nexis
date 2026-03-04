@@ -64,6 +64,10 @@ nexis-protocol = { workspace = true }
 nexis-mcp = { workspace = true }
 nexis-runtime = { workspace = true }
 nexis-vector = { workspace = true }
+nexis-meeting = { workspace = true }
+nexis-doc = { workspace = true }
+nexis-task = { workspace = true }
+nexis-calendar = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
