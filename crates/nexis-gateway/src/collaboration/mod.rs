@@ -1,8 +1,8 @@
 //! Collaboration API routes for Phase 6 features.
 
 use axum::{
-    extract::Path,
-    http::StatusCode,
+    extract::{FromRequestParts, Path},
+    http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -18,6 +18,8 @@ const MAX_TITLE_LEN: usize = 200;
 const MAX_IDENTIFIER_LEN: usize = 128;
 const MAX_CONTENT_LEN: usize = 100_000;
 const MAX_RATE_LIMIT_SUBJECT_LEN: usize = 64;
+const API_VERSION_HEADER: &str = "x-api-version";
+const SUPPORTED_API_VERSION: &str = "1";
 
 #[derive(Debug, Clone, Deserialize)]
 struct CreateMeetingRoomRequest {
@@ -121,12 +123,69 @@ struct CollaborationErrorResponse {
     code: &'static str,
 }
 
-impl CollaborationErrorResponse {
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            error: message.into(),
-            code: "BAD_REQUEST",
+#[derive(Debug, Clone)]
+enum CollaborationError {
+    BadRequest(String),
+    Unauthorized,
+    InvalidApiVersion,
+}
+
+impl IntoResponse for CollaborationError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::BadRequest(message) => (
+                StatusCode::BAD_REQUEST,
+                Json(CollaborationErrorResponse {
+                    error: message,
+                    code: "BAD_REQUEST",
+                }),
+            )
+                .into_response(),
+            Self::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                Json(CollaborationErrorResponse {
+                    error: "Missing or invalid authorization token".to_string(),
+                    code: "UNAUTHORIZED",
+                }),
+            )
+                .into_response(),
+            Self::InvalidApiVersion => (
+                StatusCode::BAD_REQUEST,
+                Json(CollaborationErrorResponse {
+                    error: "X-API-Version header is required and must be set to '1'".to_string(),
+                    code: "INVALID_API_VERSION",
+                }),
+            )
+                .into_response(),
         }
+    }
+}
+
+struct CollaborationRequestContext {
+    _user: AuthenticatedUser,
+}
+
+#[async_trait::async_trait]
+impl<S> FromRequestParts<S> for CollaborationRequestContext
+where
+    S: Send + Sync,
+{
+    type Rejection = CollaborationError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let user = AuthenticatedUser::from_request_parts(parts, state)
+            .await
+            .map_err(|_| CollaborationError::Unauthorized)?;
+
+        let version_header = parts
+            .headers
+            .get(API_VERSION_HEADER)
+            .and_then(|value| value.to_str().ok());
+        if version_header != Some(SUPPORTED_API_VERSION) {
+            return Err(CollaborationError::InvalidApiVersion);
+        }
+
+        Ok(Self { _user: user })
     }
 }
 
@@ -188,11 +247,7 @@ impl CollaborationRateLimitKey {
 }
 
 fn bad_request_response(message: impl Into<String>) -> Response {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(CollaborationErrorResponse::bad_request(message)),
-    )
-        .into_response()
+    CollaborationError::BadRequest(message.into()).into_response()
 }
 
 fn validate_required_text(field: &str, value: &str, max_len: usize) -> Result<String, Response> {
@@ -289,7 +344,7 @@ where
 }
 
 async fn create_meeting_room(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Json(payload): Json<CreateMeetingRoomRequest>,
 ) -> Response {
     let _domain_type_marker: Option<nexis_meeting::MeetingRoom> = None;
@@ -307,7 +362,7 @@ async fn create_meeting_room(
 }
 
 async fn join_meeting_room(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Path(room_id): Path<String>,
     Json(payload): Json<MeetingParticipantRequest>,
 ) -> Response {
@@ -327,7 +382,7 @@ async fn join_meeting_room(
 }
 
 async fn leave_meeting_room(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Path(room_id): Path<String>,
     Json(payload): Json<MeetingParticipantRequest>,
 ) -> Response {
@@ -347,7 +402,7 @@ async fn leave_meeting_room(
 }
 
 async fn create_document(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Json(payload): Json<CreateDocumentRequest>,
 ) -> Response {
     let _domain_type_marker: Option<nexis_doc::Document> = None;
@@ -365,7 +420,7 @@ async fn create_document(
 }
 
 async fn sync_document(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Path(document_id): Path<String>,
     Json(payload): Json<SyncDocumentRequest>,
 ) -> Response {
@@ -388,7 +443,7 @@ async fn sync_document(
 }
 
 async fn get_document_content(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Path(document_id): Path<String>,
 ) -> Response {
     let _domain_type_marker: Option<nexis_doc::DocSnapshot> = None;
@@ -405,7 +460,10 @@ async fn get_document_content(
     (StatusCode::OK, Json(response)).into_response()
 }
 
-async fn create_task(_user: AuthenticatedUser, Json(payload): Json<CreateTaskRequest>) -> Response {
+async fn create_task(
+    _ctx: CollaborationRequestContext,
+    Json(payload): Json<CreateTaskRequest>,
+) -> Response {
     let _domain_type_marker: Option<nexis_task::Task> = None;
     let title = match validate_required_text("title", &payload.title, MAX_TITLE_LEN) {
         Ok(title) => title,
@@ -421,7 +479,7 @@ async fn create_task(_user: AuthenticatedUser, Json(payload): Json<CreateTaskReq
 }
 
 async fn assign_task(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Path(task_id): Path<String>,
     Json(payload): Json<AssignTaskRequest>,
 ) -> Response {
@@ -444,7 +502,7 @@ async fn assign_task(
     (StatusCode::OK, Json(response)).into_response()
 }
 
-async fn complete_task(_user: AuthenticatedUser, Path(task_id): Path<String>) -> Response {
+async fn complete_task(_ctx: CollaborationRequestContext, Path(task_id): Path<String>) -> Response {
     let _domain_type_marker: Option<nexis_task::TaskStatus> = None;
     let task_id = match validate_path_id("task_id", &task_id) {
         Ok(task_id) => task_id,
@@ -460,7 +518,7 @@ async fn complete_task(_user: AuthenticatedUser, Path(task_id): Path<String>) ->
 }
 
 async fn create_calendar_event(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Json(payload): Json<CreateCalendarEventRequest>,
 ) -> Response {
     let _domain_type_marker: Option<nexis_calendar::CalendarEvent> = None;
@@ -484,7 +542,7 @@ async fn create_calendar_event(
 }
 
 async fn check_calendar_conflicts(
-    _user: AuthenticatedUser,
+    _ctx: CollaborationRequestContext,
     Json(payload): Json<ConflictCheckRequest>,
 ) -> Response {
     let _domain_type_marker: Option<nexis_calendar::Conflict> = None;
@@ -520,6 +578,7 @@ mod tests {
                     .uri("/v1/collaboration/meetings/rooms")
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
+                    .header("x-api-version", "1")
                     .body(Body::from(
                         json!({
                             "name": "daily-sync"
@@ -551,6 +610,7 @@ mod tests {
                     .uri("/v1/collaboration/calendar/conflicts")
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
+                    .header("x-api-version", "1")
                     .body(Body::from(
                         json!({
                             "starts_at": "2026-03-04T09:00:00Z",
@@ -578,6 +638,7 @@ mod tests {
                     .uri("/v1/collaboration/meetings/rooms")
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
+                    .header("x-api-version", "1")
                     .body(Body::from(
                         json!({
                             "name": "   "
@@ -604,6 +665,7 @@ mod tests {
                     .uri("/v1/collaboration/meetings/rooms/room$bad/join")
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
+                    .header("x-api-version", "1")
                     .body(Body::from(
                         json!({
                             "user_id": "user-123"
@@ -630,6 +692,7 @@ mod tests {
                     .uri("/v1/collaboration/calendar/events")
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
+                    .header("x-api-version", "1")
                     .body(Body::from(
                         json!({
                             "title": "Design review",
