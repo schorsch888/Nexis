@@ -4,16 +4,19 @@
 //! - Context window management
 //! - Token counting (optional, feature-gated)
 //! - Conversation context tracking
+//! - Context summarization (when window overflows)
 
 pub mod context;
 pub mod error;
 pub mod manager;
+pub mod summarizer;
 pub mod window;
 
-pub use context::ConversationContext;
+pub use context::{ConversationContext, Message, MessageRole};
 pub use error::{ContextError, ContextResult};
 pub use manager::ContextManager;
-pub use window::ContextWindow;
+pub use summarizer::{ContextSummarizer, SummarizerConfig, NoOpSummarizer, MockSummarizer};
+pub use window::{ContextWindow, OverflowStrategy};
 
 /// Prelude for common imports
 pub mod prelude {

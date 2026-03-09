@@ -19,6 +19,12 @@ pub enum ContextError {
 
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
+
+    #[error("Summarization failed: {0}")]
+    SummarizationFailed(String),
+
+    #[error("Summarization not available")]
+    SummarizationNotAvailable,
 }
 
 /// Result type for context operations

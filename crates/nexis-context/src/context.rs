@@ -44,6 +44,11 @@ impl Message {
     pub fn system(content: String) -> Self {
         Self::new(MessageRole::System, content)
     }
+
+    /// Check if this is a system message (typically a summary)
+    pub fn is_summary(&self) -> bool {
+        matches!(self.role, MessageRole::System)
+    }
 }
 
 /// Conversation context

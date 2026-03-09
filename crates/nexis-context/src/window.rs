@@ -34,6 +34,16 @@ impl ContextWindow {
     pub fn available_tokens(&self) -> usize {
         self.max_tokens.saturating_sub(self.reserved_tokens)
     }
+
+    pub fn with_overflow_strategy(mut self, strategy: OverflowStrategy) -> Self {
+        self.overflow_strategy = strategy;
+        self
+    }
+
+    pub fn with_reserved_tokens(mut self, tokens: usize) -> Self {
+        self.reserved_tokens = tokens;
+        self
+    }
 }
 
 /// Strategy for handling context overflow
