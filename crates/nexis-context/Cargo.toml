@@ -21,9 +21,13 @@ anyhow = { workspace = true }
 # Token counting
 tokenizers = { version = "0.21", optional = true }
 
+# AI-powered summarization
+nexis-runtime = { path = "../nexis-runtime", optional = true }
+
 [features]
 default = []
 token-counting = ["tokenizers"]
+ai-summarizer = ["nexis-runtime"]
 
 [dev-dependencies]
 tokio-test = { workspace = true }

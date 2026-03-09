@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **nexis-context**: `ContextSummarizer` trait for pluggable summarization strategies.
 - **nexis-context**: `SummarizerConfig` for customizing summarization behavior.
 - **nexis-context**: `MockSummarizer` and `NoOpSummarizer` implementations.
+- **nexis-context**: `AISummarizer` using nexis-runtime providers (feature-gated).
 - **nexis-context**: `ContextManager::with_summarizer()` for enabling summarization.
 - **nexis-context**: Automatic fallback to truncation when summarization fails.
+- **nexis-context**: `ai-summarizer` feature flag for AI-powered summarization.
 
 ### Changed
 - Root `README.md` is now English only.

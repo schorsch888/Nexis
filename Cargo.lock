@@ -2000,6 +2000,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "nexis-runtime",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
