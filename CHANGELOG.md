@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation structure normalized into strict `docs/en` and `docs/zh-CN` trees.
 - `CODE_OF_CONDUCT.md` based on Contributor Covenant.
 - `docs/en/getting-started/development-guide.md` as the development handbook entry.
+- **nexis-meeting**: `SfuRoom::try_join_room()` with capacity enforcement.
+- **nexis-meeting**: `SfuRoom::leave_room()` and cleanup methods.
 
 ### Changed
 - Root `README.md` is now English only.
@@ -19,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Internal markdown links updated after docs reorganization.
+- **nexis-meeting**: SfuRoom now properly enforces `max_participants` via `try_join_room()`.
 
 ### Removed
 - Redundant root-level docs under `docs/` and completed plan/temp docs.

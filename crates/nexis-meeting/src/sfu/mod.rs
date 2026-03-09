@@ -60,10 +60,26 @@ impl SfuRoom {
     }
 
     /// Add a participant to the room and return the generated participant ID.
+    ///
+    /// Note: This method does not enforce capacity limits. Use [`Self::try_join_room`]
+    /// for capacity-checked joins.
     pub fn join_room(&mut self) -> Uuid {
         let participant_id = Uuid::new_v4();
         self.participants.insert(participant_id);
         participant_id
+    }
+
+    /// Try to add a participant with capacity check.
+    ///
+    /// Returns `Ok(participant_id)` if the room has capacity, or
+    /// `Err(MeetingError::RoomCapacityExceeded)` if at max_participants.
+    pub fn try_join_room(&mut self) -> crate::error::MeetingResult<Uuid> {
+        if self.participants.len() >= self.config.max_participants as usize {
+            return Err(crate::error::MeetingError::RoomCapacityExceeded {
+                max_participants: self.config.max_participants,
+            });
+        }
+        Ok(self.join_room())
     }
 
     /// Remove a participant and any room state owned by that participant.
@@ -229,5 +245,38 @@ mod tests {
             room.latest_payload(publisher, MediaTrack::Video),
             Some(vec![9, 9, 9])
         );
+    }
+
+    #[test]
+    fn try_join_room_succeeds_when_under_capacity() {
+        let mut room = SfuRoom::new(SfuConfig {
+            max_participants: 2,
+            video_codec: "vp9".to_owned(),
+            audio_codec: "opus".to_owned(),
+        });
+
+        let result = room.try_join_room();
+        assert!(result.is_ok());
+        assert!(room.participants().contains(&result.unwrap()));
+    }
+
+    #[test]
+    fn try_join_room_fails_when_at_capacity() {
+        let mut room = SfuRoom::new(SfuConfig {
+            max_participants: 2,
+            video_codec: "vp9".to_owned(),
+            audio_codec: "opus".to_owned(),
+        });
+
+        // Fill to capacity
+        room.join_room();
+        room.join_room();
+
+        // Third join should fail
+        let result = room.try_join_room();
+        assert!(result.is_err());
+        
+        let err = result.unwrap_err();
+        assert!(matches!(err, crate::error::MeetingError::RoomCapacityExceeded { max_participants: 2 }));
     }
 }
