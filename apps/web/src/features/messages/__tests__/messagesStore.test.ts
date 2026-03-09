@@ -41,7 +41,11 @@ describe('messagesStore', () => {
         text: 'hello',
         timestamp: new Date().toISOString(),
       },
-    })
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: {},
+    } as any)
 
     await useMessagesStore.getState().sendMessage('room-1', 'hello')
 

@@ -19,7 +19,9 @@ class HttpClient {
     this.setupInterceptors()
   }
 
-  private async refreshAccessToken(): Promise<string | null> {
+  // Reserved for future token refresh implementation
+  // eslint-disable-next-line
+  private async _refreshAccessToken(): Promise<string | null> {
     try {
       const response = await axios.post<{ token: string; expiresAt: number }>(
         `${API_BASE_URL}/auth/refresh`,

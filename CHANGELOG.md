@@ -18,14 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Root `README.md` is now English only.
 - `README.zh-CN.md` is now Chinese only.
 - Security policy now points to the new architecture security docs.
+- **web**: Upgraded vite 5→6, vitest 1→4 to fix security vulnerabilities.
+- **web**: Updated tsconfig to ES2022 for `.at()` support.
+- **web**: Excluded e2e tests (playwright) from vitest runner.
 
 ### Fixed
 - Internal markdown links updated after docs reorganization.
 - **nexis-meeting**: SfuRoom now properly enforces `max_participants` via `try_join_room()`.
-
-### Removed
-- Redundant root-level docs under `docs/` and completed plan/temp docs.
-- Redundant root localized duplicates (`CONTRIBUTING.zh-CN.md`, `SECURITY.zh-CN.md`).
+- **web**: Fixed duplicate `ConnectionState` export in messages/index.ts.
+- **web**: Fixed import path in authStore.test.ts.
+- **web**: Fixed mock AxiosResponse shape in messagesStore.test.ts.
+- **web**: Removed unused imports to pass strict TS checks.
+- **web**: npm audit now reports 0 vulnerabilities.
 
 ## [0.1.0] - 2026-02-14
 

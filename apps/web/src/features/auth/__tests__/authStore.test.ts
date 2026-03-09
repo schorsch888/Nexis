@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useAuthStore, resetAuthStore, setRememberMe } from '../authStore'
-import type { Session } from '../../app/types'
+import type { Session } from '../../../app/types'
 
 const createMockSession = (overrides?: Partial<Session> & {
   expiresAt?: number

@@ -1,5 +1,5 @@
 import { create, StateCreator } from 'zustand'
-import { persist, createJSONStorage, PersistOptions } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import type { Session, User, SessionStatus } from '../../app/types'
 
 const REFRESH_THRESHOLD_MS = 60 * 1000
