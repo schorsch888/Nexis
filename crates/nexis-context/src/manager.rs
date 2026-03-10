@@ -97,9 +97,10 @@ impl ContextManager {
         if new_total > self.window.available_tokens() {
             match self.window.overflow_strategy {
                 OverflowStrategy::TruncateOldest => {
-                    let truncated = self.truncate_oldest_with_count(context, new_total - self.window.available_tokens());
+                    #[allow(unused_variables)]
+                    let count = self.truncate_oldest_with_count(context, new_total - self.window.available_tokens());
                     #[cfg(feature = "metrics")]
-                    record_truncation(truncated);
+                    record_truncation(count);
                 }
                 OverflowStrategy::Fail => {
                     return Err(ContextError::WindowFull);

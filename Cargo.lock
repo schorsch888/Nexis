@@ -2000,6 +2000,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "criterion",
  "lazy_static",
  "nexis-runtime",
  "prometheus",

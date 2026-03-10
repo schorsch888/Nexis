@@ -36,3 +36,9 @@ metrics = ["prometheus", "lazy_static"]
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "context_summarization"
+harness = false
+required-features = ["ai-summarizer"]
