@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use futures::{SinkExt, StreamExt};
 use nexis_gateway::build_routes;
 use tokio::net::TcpListener;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 async fn spawn_server() -> (String, tokio::task::JoinHandle<()>) {
     let app = build_routes();
@@ -40,8 +40,8 @@ fn benchmark_websocket_connections(c: &mut Criterion) {
                             let url = url.clone();
                             tokio::spawn(async move {
                                 let (mut ws, _resp) =
-                                    connect_async(url).await.expect("websocket should connect");
-                                ws.send(Message::Text(format!("ping-{idx}")))
+                                    connect_async(&url).await.expect("websocket should connect");
+                                ws.send(Message::Text(format!("ping-{idx}").into()))
                                     .await
                                     .expect("send benchmark frame");
 
