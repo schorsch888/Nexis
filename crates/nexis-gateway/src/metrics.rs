@@ -138,6 +138,30 @@ lazy_static! {
     /// Build info
     pub static ref BUILD_INFO: GaugeVec =
         register_gauge_vec!("nexis_build_info", "Build information", &["version", "commit"]).unwrap();
+
+    // ============================================================================
+    // Connection Pool Metrics
+    // ============================================================================
+
+    /// Active connections in sharded pool
+    pub static ref POOL_CONNECTIONS_ACTIVE: Gauge =
+        register_gauge!("nexis_pool_connections_active", "Active connections in sharded pool").unwrap();
+
+    /// Peak connections in sharded pool
+    pub static ref POOL_CONNECTIONS_PEAK: Gauge =
+        register_gauge!("nexis_pool_connections_peak", "Peak connections in sharded pool").unwrap();
+
+    /// Total connections created
+    pub static ref POOL_CONNECTIONS_TOTAL: Counter =
+        register_counter!("nexis_pool_connections_total", "Total connections ever created in pool").unwrap();
+
+    /// Messages sent via broadcast
+    pub static ref POOL_MESSAGES_SENT: Counter =
+        register_counter!("nexis_pool_messages_sent_total", "Messages sent via pool broadcast").unwrap();
+
+    /// Messages dropped
+    pub static ref POOL_MESSAGES_DROPPED: Counter =
+        register_counter!("nexis_pool_messages_dropped_total", "Messages dropped in pool broadcast").unwrap();
 }
 
 /// Initialize metrics with build info
@@ -159,6 +183,49 @@ pub fn export() -> String {
     let mut buffer = Vec::new();
     encoder.encode(&metric_families, &mut buffer).unwrap();
     String::from_utf8(buffer).unwrap()
+}
+
+// ============================================================================
+// Connection Pool Metrics Helpers
+// ============================================================================
+
+/// Record a new connection in the pool
+pub fn record_pool_connection_added(count: usize) {
+    POOL_CONNECTIONS_ACTIVE.set(count as f64);
+    POOL_CONNECTIONS_TOTAL.inc();
+}
+
+/// Record a connection removed from the pool
+pub fn record_pool_connection_removed(count: usize) {
+    POOL_CONNECTIONS_ACTIVE.set(count as f64);
+}
+
+/// Update peak connections if current is higher
+pub fn record_pool_peak_if_higher(current: usize) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static PEAK_TRACKER: AtomicU64 = AtomicU64::new(0);
+    
+    let current_u64 = current as u64;
+    let mut peak = PEAK_TRACKER.load(Ordering::Relaxed);
+    while current_u64 > peak {
+        match PEAK_TRACKER.compare_exchange_weak(peak, current_u64, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => {
+                POOL_CONNECTIONS_PEAK.set(current as f64);
+                break;
+            }
+            Err(p) => peak = p,
+        }
+    }
+}
+
+/// Record a message sent via broadcast
+pub fn record_pool_message_sent() {
+    POOL_MESSAGES_SENT.inc();
+}
+
+/// Record a message dropped
+pub fn record_pool_message_dropped() {
+    POOL_MESSAGES_DROPPED.inc();
 }
 
 #[cfg(test)]

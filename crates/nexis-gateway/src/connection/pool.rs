@@ -10,6 +10,11 @@ use std::time::Instant;
 use tokio::sync::{broadcast, OwnedSemaphorePermit, RwLock, Semaphore};
 use uuid::Uuid;
 
+use crate::metrics::{
+    record_pool_connection_added, record_pool_connection_removed,
+    record_pool_peak_if_higher, record_pool_message_sent, record_pool_message_dropped,
+};
+
 /// Default number of shards for connection pool
 const DEFAULT_SHARD_COUNT: usize = 64;
 
@@ -148,6 +153,10 @@ impl ShardedConnectionManager {
             }
         }
 
+        // Record metrics
+        record_pool_connection_added(count);
+        record_pool_peak_if_higher(count);
+
         tracing::debug!(
             connection_id = %id,
             shard = shard_idx,
@@ -177,6 +186,10 @@ impl ShardedConnectionManager {
             permits.remove(&id);
             
             let count = self.active_connections.fetch_sub(1, Ordering::Relaxed) - 1;
+            
+            // Record metrics
+            record_pool_connection_removed(count);
+            
             tracing::debug!(
                 connection_id = %id,
                 shard = shard_idx,
@@ -250,8 +263,10 @@ impl ShardedConnectionManager {
         if receiver_count > 0 {
             if self.message_tx.send(msg).is_err() {
                 self.messages_dropped.fetch_add(1, Ordering::Relaxed);
+                record_pool_message_dropped();
             } else {
                 self.messages_sent.fetch_add(1, Ordering::Relaxed);
+                record_pool_message_sent();
             }
         }
     }
